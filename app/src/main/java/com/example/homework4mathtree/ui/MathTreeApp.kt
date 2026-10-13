@@ -25,28 +25,59 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.homework4mathtree.model.MathNode
 import com.example.homework4mathtree.parser.MathExpressionParser
+import com.example.homework4mathtree.parser.UserFunction
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MathTreeApp() {
-    var expressionText by remember { mutableStateOf("x + 5 * y") }
-    var variableInputs by remember { mutableStateOf(mapOf("x" to "10", "y" to "2")) }
+    var expressionText by remember { mutableStateOf("függvény1(10 * a + 2 * függvény2(b))") }
+    var variableInputs by remember { mutableStateOf(mapOf("a" to "1", "b" to "3")) }
+
+    var userFunctionsList by remember {
+        mutableStateOf(
+            listOf(
+                UserFunction(
+                    name = "függvény1",
+                    parameters = listOf("x"),
+                    expressionBody = "2 * x"
+                ),
+                UserFunction(
+                    name = "függvény2",
+                    parameters = listOf("b"),
+                    expressionBody = "b ^ 2"
+                )
+            )
+        )
+    }
 
     var parsedTree by remember { mutableStateOf<MathNode?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Kártya Nézet, 1: Grafikus Ábra
 
+    // Változó hozzáadása dialog
     var showAddVarDialog by remember { mutableStateOf(false) }
     var newVarName by remember { mutableStateOf("") }
     var newVarValue by remember { mutableStateOf("") }
+
+    // Függvény hozzáadása / szerkesztése dialog
+    var showFuncDialog by remember { mutableStateOf(false) }
+    var editingFuncIndex by remember { mutableStateOf<Int?>(null) }
+    var funcNameInput by remember { mutableStateOf("") }
+    var funcParamsInput by remember { mutableStateOf("") }
+    var funcBodyInput by remember { mutableStateOf("") }
 
     val parser = remember { MathExpressionParser() }
     val keyboardController = LocalSoftwareKeyboardController.current
     val scrollState = rememberScrollState()
 
-    // Automatikus változó felismerés kifejezés változásakor
-    LaunchedEffect(expressionText) {
-        val detectedVars = parser.extractVariables(expressionText)
+    fun getUserFunctionsMap(): Map<String, UserFunction> {
+        return userFunctionsList.associateBy { it.name }
+    }
+
+    // Automatikus változó felismerés kifejezés vagy függvények változásakor
+    LaunchedEffect(expressionText, userFunctionsList) {
+        val userFuncMap = getUserFunctionsMap()
+        val detectedVars = parser.extractVariables(expressionText, userFuncMap)
         val updatedMap = variableInputs.toMutableMap()
         var changed = false
         detectedVars.forEach { varName ->
@@ -67,7 +98,8 @@ fun MathTreeApp() {
             val doubleVariables = variableInputs.mapValues {
                 it.value.toDoubleOrNull() ?: 0.0
             }
-            val root = parser.parse(expressionText, doubleVariables)
+            val userFuncMap = getUserFunctionsMap()
+            val root = parser.parse(expressionText, doubleVariables, userFuncMap)
             parsedTree = root
         } catch (e: Exception) {
             parsedTree = null
@@ -75,8 +107,8 @@ fun MathTreeApp() {
         }
     }
 
-    // Automatikus elemzés kifejezés vagy változók módosításakor
-    LaunchedEffect(expressionText, variableInputs) {
+    // Automatikus elemzés kifejezés, változók vagy függvények módosításakor
+    LaunchedEffect(expressionText, variableInputs, userFunctionsList) {
         buildTree()
     }
 
@@ -126,7 +158,7 @@ fun MathTreeApp() {
                         value = expressionText,
                         onValueChange = { expressionText = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Pl.: x + 5 * y vagy a ^ 2 + b ^ 2") },
+                        placeholder = { Text("Pl.: függvény1(10 * a + 2 * függvény2(b))") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = { buildTree() }),
@@ -139,22 +171,23 @@ fun MathTreeApp() {
                         }
                     )
 
-                    // Gyors szimbólum és változó beszúró gombok
+                    // Gyors szimbólum és változó/függvény beszúró gombok
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        val symbols = listOf("+", "-", "*", "/", "^", "√", "(", ")", "x", "y", "a", "b")
-                        symbols.forEach { symbol ->
+                        val symbols = listOf("+", "-", "*", "/", "^", "√", "(", ")", ",", "a", "b", "x", "y") +
+                            userFunctionsList.map { it.name }
+                        symbols.distinct().forEach { symbol ->
                             SuggestionChip(
                                 onClick = { expressionText += " $symbol " },
                                 label = {
                                     Text(
                                         text = symbol,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp
+                                        fontSize = 14.sp
                                     )
                                 }
                             )
@@ -175,11 +208,10 @@ fun MathTreeApp() {
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         val presets = listOf(
+                            "függvény1(10 * a + 2 * függvény2(b))",
                             "x + 5 * y",
                             "a ^ 2 + b ^ 2",
-                            "(10 - x) / (1 + y)",
-                            "sqrt(x) + y",
-                            "3 + 5 * 2"
+                            "sqrt(x) + y"
                         )
                         presets.forEach { preset ->
                             FilterChip(
@@ -189,6 +221,123 @@ fun MathTreeApp() {
                                 },
                                 label = { Text(preset, fontSize = 12.sp) }
                             )
+                        }
+                    }
+                }
+            }
+
+            // Saját Függvények és Elnevezett Kifejezések Szekció
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Saját Függvények & Kifejezések:",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                        TextButton(
+                            onClick = {
+                                editingFuncIndex = null
+                                funcNameInput = ""
+                                funcParamsInput = "x"
+                                funcBodyInput = ""
+                                showFuncDialog = true
+                            }
+                        ) {
+                            Text("+ Új függvény", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    if (userFunctionsList.isEmpty()) {
+                        Text(
+                            text = "Nincsenek egyéni függvények. Hozz létre újat a '+ Új függvény' gombbal!",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        userFunctionsList.forEachIndexed { index, func ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surface
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Box(
+                                            contentAlignment = Alignment.Center,
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF4A148C))
+                                        ) {
+                                            Text(
+                                                text = "f",
+                                                color = Color.White,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 16.sp
+                                            )
+                                        }
+
+                                        Column {
+                                            val paramsStr = func.parameters.joinToString(", ")
+                                            val sig = if (paramsStr.isEmpty()) func.name else "${func.name}($paramsStr)"
+                                            Text(
+                                                text = "$sig = ${func.expressionBody}",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 15.sp,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+                                    }
+
+                                    Row {
+                                        IconButton(
+                                            onClick = {
+                                                editingFuncIndex = index
+                                                funcNameInput = func.name
+                                                funcParamsInput = func.parameters.joinToString(", ")
+                                                funcBodyInput = func.expressionBody
+                                                showFuncDialog = true
+                                            }
+                                        ) {
+                                            Text("✏️", fontSize = 16.sp)
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                userFunctionsList = userFunctionsList.toMutableList().apply { removeAt(index) }
+                                            }
+                                        ) {
+                                            Text("🗑️", fontSize = 16.sp)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -224,7 +373,7 @@ fun MathTreeApp() {
 
                     if (variableInputs.isEmpty()) {
                         Text(
-                            text = "Nincsenek változók. Írj be betűket a kifejezésbe (pl. x, y), és automatikusan megjelennek!",
+                            text = "Nincsenek változók. Írj be betűket a kifejezésbe (pl. a, b), és automatikusan megjelennek!",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -393,6 +542,75 @@ fun MathTreeApp() {
         }
     }
 
+    // Új / Módosítandó függvény párbeszédablak
+    if (showFuncDialog) {
+        AlertDialog(
+            onDismissRequest = { showFuncDialog = false },
+            title = {
+                Text(if (editingFuncIndex == null) "Új függvény / kifejezés" else "Függvény szerkesztése")
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = funcNameInput,
+                        onValueChange = { funcNameInput = it.trim() },
+                        label = { Text("Függvény neve (pl. függvény1, sqr)") },
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = funcParamsInput,
+                        onValueChange = { funcParamsInput = it },
+                        label = { Text("Paraméterek (pl. x vagy x, y)") },
+                        placeholder = { Text("pl.: x") },
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = funcBodyInput,
+                        onValueChange = { funcBodyInput = it },
+                        label = { Text("Kifejezés törzse (pl. 2 * x + 3)") },
+                        placeholder = { Text("pl.: 2 * x") },
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (funcNameInput.isNotEmpty() && funcBodyInput.isNotEmpty()) {
+                            val parsedParams = funcParamsInput
+                                .split(",")
+                                .map { it.trim() }
+                                .filter { it.isNotEmpty() }
+
+                            val newFunc = UserFunction(
+                                name = funcNameInput,
+                                parameters = parsedParams,
+                                expressionBody = funcBodyInput
+                            )
+
+                            val updatedList = userFunctionsList.toMutableList()
+                            if (editingFuncIndex != null) {
+                                updatedList[editingFuncIndex!!] = newFunc
+                            } else {
+                                updatedList.add(newFunc)
+                            }
+                            userFunctionsList = updatedList
+                            showFuncDialog = false
+                            buildTree()
+                        }
+                    }
+                ) {
+                    Text("Mentés")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFuncDialog = false }) {
+                    Text("Mégse")
+                }
+            }
+        )
+    }
+
     // Új változó hozzáadása párbeszédablak
     if (showAddVarDialog) {
         AlertDialog(
@@ -403,7 +621,7 @@ fun MathTreeApp() {
                     OutlinedTextField(
                         value = newVarName,
                         onValueChange = { newVarName = it.trim() },
-                        label = { Text("Változó neve (pl. x, y, a)") },
+                        label = { Text("Változó neve (pl. a, b, x)") },
                         singleLine = true
                     )
                     OutlinedTextField(

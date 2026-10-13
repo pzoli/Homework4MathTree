@@ -121,4 +121,20 @@ class MathParserTest {
         val extracted = parser.extractVariables("a ^ 2 + b ^ 2 - sqrt(a)")
         assertEquals(listOf("a", "b"), extracted)
     }
+
+    @Test
+    fun testUserFunctionsAndNesting() {
+        val funcs = mapOf(
+            "függvény1" to com.example.homework4mathtree.parser.UserFunction("függvény1", listOf("x"), "2 * x"),
+            "függvény2" to com.example.homework4mathtree.parser.UserFunction("függvény2", listOf("b"), "b ^ 2")
+        )
+        val vars = mapOf("a" to 1.0, "b" to 3.0)
+
+        // függvény2(3) = 9
+        // 10 * a + 2 * 9 = 28
+        // függvény1(28) = 2 * 28 = 56
+        val tree = parser.parse("függvény1(10 * a + 2 * függvény2(b))", vars, funcs)
+        assertTrue(tree is FunctionCallNode)
+        assertEquals(56.0, tree.getValue(), 0.0001)
+    }
 }

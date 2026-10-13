@@ -309,6 +309,7 @@ fun getNodeColor(node: MathNode): Color {
         is RootNode -> Color(0xFF00838F)           // Cián
         is NumberNode -> Color(0xFF424242)         // Sötétszürke
         is VariableNode -> Color(0xFF00796B)       // Ciánkék / Teal
+        is FunctionCallNode -> Color(0xFF4A148C)   // Mélylila
         else -> Color(0xFF424242)
     }
 }

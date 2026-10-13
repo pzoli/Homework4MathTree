@@ -3,6 +3,15 @@ package com.example.homework4mathtree.parser
 import com.example.homework4mathtree.model.*
 
 /**
+ * Felhasználó által definiált elnevezett kifejezés vagy függvény.
+ */
+data class UserFunction(
+    val name: String,
+    val parameters: List<String> = emptyList(), // pl. ["x"] vagy ["x", "y"]
+    val expressionBody: String                   // pl. "10 * x + 2"
+)
+
+/**
  * Tokenek a lexikális elemzéshez.
  */
 sealed class Token {
@@ -16,6 +25,7 @@ sealed class Token {
     object Root : Token()
     object LParen : Token()
     object RParen : Token()
+    object Comma : Token()
 }
 
 /**
@@ -25,9 +35,13 @@ class MathExpressionParser {
 
     /**
      * Szöveges matematikai kifejezést alakít bináris MathNode fa struktúrává
-     * a megadott változó behelyettesítési értékekkel.
+     * a megadott változó behelyettesítési értékekkel és felhasználói függvényekkel.
      */
-    fun parse(input: String, variables: Map<String, Double> = emptyMap()): MathNode {
+    fun parse(
+        input: String,
+        variables: Map<String, Double> = emptyMap(),
+        userFunctions: Map<String, UserFunction> = emptyMap()
+    ): MathNode {
         val trimmed = input.trim()
         if (trimmed.isEmpty()) {
             throw IllegalArgumentException("Kérjük, adjon meg egy matematikai kifejezést!")
@@ -36,7 +50,7 @@ class MathExpressionParser {
         if (tokens.isEmpty()) {
             throw IllegalArgumentException("A megadott kifejezés üres vagy érvénytelen!")
         }
-        val parserInstance = ParserInstance(tokens, variables)
+        val parserInstance = ParserInstance(tokens, variables, userFunctions)
         val rootNode = parserInstance.parseExpression()
         if (!parserInstance.isAtEnd()) {
             throw IllegalArgumentException("Érvénytelen kifejezés a következő szimbólumnál: ${parserInstance.peek()}")
@@ -45,15 +59,21 @@ class MathExpressionParser {
     }
 
     /**
-     * Kinyeri a kifejezésben található összes változó nevét egyedi listaként.
+     * Kinyeri a kifejezésben található összes szabad változó nevét egyedi listaként.
+     * Kiszűri a megadott felhasználói függvényneveket.
      */
-    fun extractVariables(input: String): List<String> {
+    fun extractVariables(
+        input: String,
+        userFunctions: Map<String, UserFunction> = emptyMap()
+    ): List<String> {
         val trimmed = input.trim()
         if (trimmed.isEmpty()) return emptyList()
         return try {
             val tokens = tokenize(trimmed)
+            val funcNames = userFunctions.keys.map { it.lowercase() }.toSet()
             tokens.filterIsInstance<Token.Variable>()
                 .map { it.name }
+                .filterNot { funcNames.contains(it.lowercase()) }
                 .distinct()
         } catch (_: Exception) {
             emptyList()
@@ -131,6 +151,10 @@ class MathExpressionParser {
                     tokens.add(Token.RParen)
                     i++
                 }
+                c == ',' -> {
+                    tokens.add(Token.Comma)
+                    i++
+                }
                 c.isDigit() || c == '.' -> {
                     val start = i
                     var hasDot = c == '.'
@@ -173,7 +197,8 @@ class MathExpressionParser {
 
     private class ParserInstance(
         private val tokens: List<Token>,
-        private val variables: Map<String, Double>
+        private val variables: Map<String, Double>,
+        private val userFunctions: Map<String, UserFunction>
     ) {
         private var pos = 0
 
@@ -260,10 +285,10 @@ class MathExpressionParser {
                 is Token.Minus -> {
                     advance()
                     val operand = parseUnary()
-                    if (operand is NumberNode) {
-                        return NumberNode(-operand.numberValue)
+                    return if (operand is NumberNode) {
+                        NumberNode(-operand.numberValue)
                     } else {
-                        return SubtractionNode(NumberNode(0.0), operand)
+                        SubtractionNode(NumberNode(0.0), operand)
                     }
                 }
                 is Token.Root -> {
@@ -276,7 +301,7 @@ class MathExpressionParser {
             }
         }
 
-        // Primary: Number | Variable | '(' Expression ')'
+        // Primary: Number | Variable | FunctionCall | '(' Expression ')'
         private fun parsePrimary(): MathNode {
             val token = peek()
                 ?: throw IllegalArgumentException("Kifejezés korai vége. Hiányzó operandus!")
@@ -287,12 +312,80 @@ class MathExpressionParser {
                     NumberNode(token.value)
                 }
                 is Token.Variable -> {
-                    advance()
-                    val varValue = variables[token.name]
-                        ?: variables[token.name.lowercase()]
-                        ?: variables[token.name.uppercase()]
-                        ?: 0.0
-                    VariableNode(token.name, varValue)
+                    val varToken = advance() as Token.Variable
+                    val varName = varToken.name
+
+                    if (peek() is Token.LParen) {
+                        // Ez egy függvényhívás! (pl. függvény1(arg1, arg2))
+                        advance() // '('
+                        val argNodes = mutableListOf<MathNode>()
+                        if (peek() !is Token.RParen) {
+                            while (true) {
+                                val argExpr = parseExpression()
+                                argNodes.add(argExpr)
+                                if (peek() is Token.Comma) {
+                                    advance() // ','
+                                } else {
+                                    break
+                                }
+                            }
+                        }
+                        if (peek() !is Token.RParen) {
+                            throw IllegalArgumentException("Hiányzó zárójel a '$varName' függvényhívás végén: ')'")
+                        }
+                        advance() // ')'
+
+                        val userFunc = userFunctions[varName]
+                            ?: userFunctions[varName.lowercase()]
+                            ?: userFunctions[varName.uppercase()]
+
+                        if (userFunc != null) {
+                            val localCallVariables = variables.toMutableMap()
+                            userFunc.parameters.forEachIndexed { index, paramName ->
+                                val argVal = if (index < argNodes.size) argNodes[index].getValue() else 0.0
+                                localCallVariables[paramName] = argVal
+                            }
+
+                            val bodyParser = MathExpressionParser()
+                            val bodyTree = bodyParser.parse(userFunc.expressionBody, localCallVariables, userFunctions)
+
+                            FunctionCallNode(
+                                functionName = varName,
+                                argumentNodes = argNodes,
+                                functionBodyTree = bodyTree
+                            )
+                        } else {
+                            when (varName.lowercase()) {
+                                "sqrt", "root", "gyok", "gyök" -> {
+                                    val arg = argNodes.firstOrNull()
+                                        ?: throw IllegalArgumentException("A gyökvonáshoz meg kell adni egy kifejezést!")
+                                    RootNode(NumberNode(2.0), arg)
+                                }
+                                else -> throw IllegalArgumentException("Ismeretlen függvény: '$varName'")
+                            }
+                        }
+                    } else {
+                        // Normál változó vagy paraméter nélküli elnevezett kifejezés
+                        val userFunc = userFunctions[varName]
+                            ?: userFunctions[varName.lowercase()]
+                            ?: userFunctions[varName.uppercase()]
+
+                        if (userFunc != null && userFunc.parameters.isEmpty()) {
+                            val bodyParser = MathExpressionParser()
+                            val bodyTree = bodyParser.parse(userFunc.expressionBody, variables, userFunctions)
+                            FunctionCallNode(
+                                functionName = varName,
+                                argumentNodes = emptyList(),
+                                functionBodyTree = bodyTree
+                            )
+                        } else {
+                            val varValue = variables[varName]
+                                ?: variables[varName.lowercase()]
+                                ?: variables[varName.uppercase()]
+                                ?: 0.0
+                            VariableNode(varName, varValue)
+                        }
+                    }
                 }
                 is Token.LParen -> {
                     advance()

@@ -137,7 +137,7 @@ class NumberNode(val numberValue: Double) : MathNode() {
  */
 class VariableNode(
     val name: String,
-    val variableValue: Double
+    val variableValue: Double,
 ) : MathNode() {
     override val symbol: String = name
     override val description: String = if (variableValue % 1.0 == 0.0) {
@@ -146,4 +146,23 @@ class VariableNode(
         "Változó ($name = $variableValue)"
     }
     override fun getValue(): Double = variableValue
+}
+
+/**
+ * Felhasználó által definiált függvényhívás vagy elnevezett kifejezés csomópont.
+ */
+class FunctionCallNode(
+    val functionName: String,
+    val argumentNodes: List<MathNode>,
+    val functionBodyTree: MathNode,
+) : MathNode() {
+    override val symbol: String = if (argumentNodes.isEmpty()) {
+        functionName
+    } else {
+        "$functionName(${argumentNodes.joinToString(", ") { it.symbol }})"
+    }
+    override val description: String = "Függvényhívás: $functionName"
+    override val left: MathNode? get() = argumentNodes.firstOrNull()
+    override val right: MathNode get() = functionBodyTree
+    override fun getValue(): Double = functionBodyTree.getValue()
 }
