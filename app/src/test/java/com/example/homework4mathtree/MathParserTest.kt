@@ -137,4 +137,24 @@ class MathParserTest {
         assertTrue(tree is FunctionCallNode)
         assertEquals(56.0, tree.getValue(), 0.0001)
     }
+
+    @Test
+    fun testTrigonometricFunctions() {
+        // Degree mode
+        val sin90 = parser.parse("sin(90)", isDegreeMode = true)
+        assertTrue(sin90 is SinNode)
+        assertEquals(1.0, sin90.getValue(), 0.0001)
+
+        val cos0 = parser.parse("cos(0)", isDegreeMode = true)
+        assertTrue(cos0 is CosNode)
+        assertEquals(1.0, cos0.getValue(), 0.0001)
+
+        val tan45 = parser.parse("tan(45)", isDegreeMode = true)
+        assertTrue(tan45 is TanNode)
+        assertEquals(1.0, tan45.getValue(), 0.0001)
+
+        // Radian mode with pi
+        val sinPi2 = parser.parse("sin(pi / 2)", isDegreeMode = false)
+        assertEquals(1.0, sinPi2.getValue(), 0.0001)
+    }
 }

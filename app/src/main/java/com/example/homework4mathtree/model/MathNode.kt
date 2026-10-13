@@ -166,3 +166,80 @@ class FunctionCallNode(
     override val right: MathNode get() = functionBodyTree
     override fun getValue(): Double = functionBodyTree.getValue()
 }
+
+/**
+ * Absztrakt szülő osztály a szögfüggvényeknek (sin, cos, tan, cot).
+ */
+abstract class TrigonometricNode(
+    val operand: MathNode,
+    val isDegreeMode: Boolean = false,
+) : MathNode() {
+    override val left: MathNode get() = operand
+    override val right: MathNode? get() = null
+
+    protected fun toRadians(angle: Double): Double {
+        return if (isDegreeMode) Math.toRadians(angle) else angle
+    }
+}
+
+/**
+ * Szinusz függvény (sin)
+ */
+class SinNode(
+    operand: MathNode,
+    isDegreeMode: Boolean = false,
+) : TrigonometricNode(operand, isDegreeMode) {
+    override val symbol: String = "sin"
+    override val description: String = if (isDegreeMode) "Szinusz (sin, Fok)" else "Szinusz (sin, Rad)"
+    override fun getValue(): Double = kotlin.math.sin(toRadians(operand.getValue()))
+}
+
+/**
+ * Koszinusz függvény (cos)
+ */
+class CosNode(
+    operand: MathNode,
+    isDegreeMode: Boolean = false,
+) : TrigonometricNode(operand, isDegreeMode) {
+    override val symbol: String = "cos"
+    override val description: String = if (isDegreeMode) "Koszinusz (cos, Fok)" else "Koszinusz (cos, Rad)"
+    override fun getValue(): Double = kotlin.math.cos(toRadians(operand.getValue()))
+}
+
+/**
+ * Tangens függvény (tan / tg)
+ */
+class TanNode(
+    operand: MathNode,
+    isDegreeMode: Boolean = false,
+) : TrigonometricNode(operand, isDegreeMode) {
+    override val symbol: String = "tan"
+    override val description: String = if (isDegreeMode) "Tangens (tan, Fok)" else "Tangens (tan, Rad)"
+    override fun getValue(): Double {
+        val rad = toRadians(operand.getValue())
+        val cosVal = kotlin.math.cos(rad)
+        if (kotlin.math.abs(cosVal) < 1e-12) {
+            throw ArithmeticException("Tangens nem értelmezett kπ + π/2 pontokban!")
+        }
+        return kotlin.math.tan(rad)
+    }
+}
+
+/**
+ * Kotangens függvény (cot / ctg)
+ */
+class CotNode(
+    operand: MathNode,
+    isDegreeMode: Boolean = false,
+) : TrigonometricNode(operand, isDegreeMode) {
+    override val symbol: String = "cot"
+    override val description: String = if (isDegreeMode) "Kotangens (cot, Fok)" else "Kotangens (cot, Rad)"
+    override fun getValue(): Double {
+        val rad = toRadians(operand.getValue())
+        val sinVal = kotlin.math.sin(rad)
+        if (kotlin.math.abs(sinVal) < 1e-12) {
+            throw ArithmeticException("Kotangens nem értelmezett kπ pontokban!")
+        }
+        return 1.0 / kotlin.math.tan(rad)
+    }
+}

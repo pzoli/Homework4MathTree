@@ -31,7 +31,8 @@ import com.example.homework4mathtree.parser.UserFunction
 @Composable
 fun MathTreeApp() {
     var expressionText by remember { mutableStateOf("függvény1(10 * a + 2 * függvény2(b))") }
-    var variableInputs by remember { mutableStateOf(mapOf("a" to "1", "b" to "3")) }
+    var variableInputs by remember { mutableStateOf(mapOf("a" to "1", "b" to "3", "x" to "45")) }
+    var isDegreeMode by remember { mutableStateOf(true) } // true: Fok (DEG), false: Radián (RAD)
 
     var userFunctionsList by remember {
         mutableStateOf(
@@ -99,7 +100,7 @@ fun MathTreeApp() {
                 it.value.toDoubleOrNull() ?: 0.0
             }
             val userFuncMap = getUserFunctionsMap()
-            val root = parser.parse(expressionText, doubleVariables, userFuncMap)
+            val root = parser.parse(expressionText, doubleVariables, userFuncMap, isDegreeMode)
             parsedTree = root
         } catch (e: Exception) {
             parsedTree = null
@@ -107,8 +108,8 @@ fun MathTreeApp() {
         }
     }
 
-    // Automatikus elemzés kifejezés, változók vagy függvények módosításakor
-    LaunchedEffect(expressionText, variableInputs, userFunctionsList) {
+    // Automatikus elemzés kifejezés, változók, függvények vagy szögmód módosításakor
+    LaunchedEffect(expressionText, variableInputs, userFunctionsList, isDegreeMode) {
         buildTree()
     }
 
@@ -148,17 +149,40 @@ fun MathTreeApp() {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        text = "Matematikai kifejezés megadása:",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Matematikai kifejezés megadása:",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+
+                        // Szög mértékegység gombok (Fok vs Radián)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            FilterChip(
+                                selected = isDegreeMode,
+                                onClick = { isDegreeMode = true },
+                                label = { Text("Fok (°)", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                            )
+                            FilterChip(
+                                selected = !isDegreeMode,
+                                onClick = { isDegreeMode = false },
+                                label = { Text("Rad", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                            )
+                        }
+                    }
 
                     OutlinedTextField(
                         value = expressionText,
                         onValueChange = { expressionText = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Pl.: függvény1(10 * a + 2 * függvény2(b))") },
+                        placeholder = { Text("Pl.: sin(90) + cos(0) vagy sin(x ^ 2)") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = { buildTree() }),
@@ -171,15 +195,18 @@ fun MathTreeApp() {
                         }
                     )
 
-                    // Gyors szimbólum és változó/függvény beszúró gombok
+                    // Gyors szimbólum, szögfüggvény és változó/függvény beszúró gombok
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        val symbols = listOf("+", "-", "*", "/", "^", "√", "(", ")", ",", "a", "b", "x", "y") +
-                            userFunctionsList.map { it.name }
+                        val symbols = listOf(
+                            "+", "-", "*", "/", "^", "√", "(", ")", ",",
+                            "sin", "cos", "tan", "cot", "π", "a", "b", "x", "y"
+                        ) + userFunctionsList.map { it.name }
+
                         symbols.distinct().forEach { symbol ->
                             SuggestionChip(
                                 onClick = { expressionText += " $symbol " },
@@ -208,10 +235,11 @@ fun MathTreeApp() {
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         val presets = listOf(
+                            "sin(90) + cos(0)",
+                            "tan(x) * cot(x)",
+                            "sin(x) ^ 2 + cos(x) ^ 2",
                             "függvény1(10 * a + 2 * függvény2(b))",
-                            "x + 5 * y",
-                            "a ^ 2 + b ^ 2",
-                            "sqrt(x) + y"
+                            "a ^ 2 + b ^ 2"
                         )
                         presets.forEach { preset ->
                             FilterChip(
@@ -373,7 +401,7 @@ fun MathTreeApp() {
 
                     if (variableInputs.isEmpty()) {
                         Text(
-                            text = "Nincsenek változók. Írj be betűket a kifejezésbe (pl. a, b), és automatikusan megjelennek!",
+                            text = "Nincsenek változók. Írj be betűket a kifejezésbe (pl. a, b, x), és automatikusan megjelennek!",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

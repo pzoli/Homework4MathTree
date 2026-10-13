@@ -35,12 +35,14 @@ class MathExpressionParser {
 
     /**
      * Szöveges matematikai kifejezést alakít bináris MathNode fa struktúrává
-     * a megadott változó behelyettesítési értékekkel és felhasználói függvényekkel.
+     * a megadott változó behelyettesítési értékekkel, felhasználói függvényekkel
+     * és szögmértékegységgel (isDegreeMode = true esetén fokokban számol).
      */
     fun parse(
         input: String,
         variables: Map<String, Double> = emptyMap(),
-        userFunctions: Map<String, UserFunction> = emptyMap()
+        userFunctions: Map<String, UserFunction> = emptyMap(),
+        isDegreeMode: Boolean = false
     ): MathNode {
         val trimmed = input.trim()
         if (trimmed.isEmpty()) {
@@ -50,7 +52,7 @@ class MathExpressionParser {
         if (tokens.isEmpty()) {
             throw IllegalArgumentException("A megadott kifejezés üres vagy érvénytelen!")
         }
-        val parserInstance = ParserInstance(tokens, variables, userFunctions)
+        val parserInstance = ParserInstance(tokens, variables, userFunctions, isDegreeMode)
         val rootNode = parserInstance.parseExpression()
         if (!parserInstance.isAtEnd()) {
             throw IllegalArgumentException("Érvénytelen kifejezés a következő szimbólumnál: ${parserInstance.peek()}")
@@ -60,7 +62,7 @@ class MathExpressionParser {
 
     /**
      * Kinyeri a kifejezésben található összes szabad változó nevét egyedi listaként.
-     * Kiszűri a megadott felhasználói függvényneveket.
+     * Kiszűri a beépített konstansokat, szögfüggvényeket és felhasználói függvényneveket.
      */
     fun extractVariables(
         input: String,
@@ -68,12 +70,18 @@ class MathExpressionParser {
     ): List<String> {
         val trimmed = input.trim()
         if (trimmed.isEmpty()) return emptyList()
+        val builtInNames = setOf(
+            "sqrt", "root", "gyok", "gyök",
+            "sin", "szinusz", "cos", "koszinusz",
+            "tan", "tg", "tangens", "cot", "ctg", "kotangens",
+            "pi", "π", "e"
+        )
         return try {
             val tokens = tokenize(trimmed)
             val funcNames = userFunctions.keys.map { it.lowercase() }.toSet()
             tokens.filterIsInstance<Token.Variable>()
                 .map { it.name }
-                .filterNot { funcNames.contains(it.lowercase()) }
+                .filterNot { funcNames.contains(it.lowercase()) || builtInNames.contains(it.lowercase()) }
                 .distinct()
         } catch (_: Exception) {
             emptyList()
@@ -143,6 +151,10 @@ class MathExpressionParser {
                     tokens.add(Token.Root)
                     i++
                 }
+                c == 'π' -> {
+                    tokens.add(Token.Variable("π"))
+                    i++
+                }
                 c == '(' -> {
                     tokens.add(Token.LParen)
                     i++
@@ -198,7 +210,8 @@ class MathExpressionParser {
     private class ParserInstance(
         private val tokens: List<Token>,
         private val variables: Map<String, Double>,
-        private val userFunctions: Map<String, UserFunction>
+        private val userFunctions: Map<String, UserFunction>,
+        private val isDegreeMode: Boolean
     ) {
         private var pos = 0
 
@@ -275,9 +288,9 @@ class MathExpressionParser {
             return node
         }
 
-        // Unary: ('+' | '-' | '√' | 'sqrt') Unary | Primary
+        // Unary: ('+' | '-' | '√' | 'sqrt' | trig) Unary | Primary
         private fun parseUnary(): MathNode {
-            when (peek()) {
+            when (val token = peek()) {
                 is Token.Plus -> {
                     advance()
                     return parseUnary()
@@ -297,6 +310,23 @@ class MathExpressionParser {
                     // Unary root defaults degree to 2.0 (Square root)
                     return RootNode(NumberNode(2.0), operand)
                 }
+                is Token.Variable -> {
+                    val nameLower = token.name.lowercase()
+                    val isTrig = nameLower in setOf("sin", "cos", "tan", "tg", "cot", "ctg")
+                    if (isTrig && pos + 1 < tokens.size && tokens[pos + 1] !is Token.LParen) {
+                        advance()
+                        val operand = parseUnary()
+                        return when (nameLower) {
+                            "sin" -> SinNode(operand, isDegreeMode)
+                            "cos" -> CosNode(operand, isDegreeMode)
+                            "tan", "tg" -> TanNode(operand, isDegreeMode)
+                            "cot", "ctg" -> CotNode(operand, isDegreeMode)
+                            else -> parsePrimary()
+                        }
+                    } else {
+                        return parsePrimary()
+                    }
+                }
                 else -> return parsePrimary()
             }
         }
@@ -315,8 +345,14 @@ class MathExpressionParser {
                     val varToken = advance() as Token.Variable
                     val varName = varToken.name
 
+                    // Beépített konstansok (pi, e)
+                    when (varName.lowercase()) {
+                        "pi", "π" -> return NumberNode(Math.PI)
+                        "e" -> return NumberNode(Math.E)
+                    }
+
                     if (peek() is Token.LParen) {
-                        // Ez egy függvényhívás! (pl. függvény1(arg1, arg2))
+                        // Ez egy függvényhívás! (pl. függvény1(arg1, arg2) vagy sin(x))
                         advance() // '('
                         val argNodes = mutableListOf<MathNode>()
                         if (peek() !is Token.RParen) {
@@ -347,7 +383,7 @@ class MathExpressionParser {
                             }
 
                             val bodyParser = MathExpressionParser()
-                            val bodyTree = bodyParser.parse(userFunc.expressionBody, localCallVariables, userFunctions)
+                            val bodyTree = bodyParser.parse(userFunc.expressionBody, localCallVariables, userFunctions, isDegreeMode)
 
                             FunctionCallNode(
                                 functionName = varName,
@@ -361,6 +397,26 @@ class MathExpressionParser {
                                         ?: throw IllegalArgumentException("A gyökvonáshoz meg kell adni egy kifejezést!")
                                     RootNode(NumberNode(2.0), arg)
                                 }
+                                "sin", "szinusz" -> {
+                                    val arg = argNodes.firstOrNull()
+                                        ?: throw IllegalArgumentException("A szinusz függvényhez meg kell adni egy kifejezést!")
+                                    SinNode(arg, isDegreeMode)
+                                }
+                                "cos", "koszinusz" -> {
+                                    val arg = argNodes.firstOrNull()
+                                        ?: throw IllegalArgumentException("A koszinusz függvényhez meg kell adni egy kifejezést!")
+                                    CosNode(arg, isDegreeMode)
+                                }
+                                "tan", "tg", "tangens" -> {
+                                    val arg = argNodes.firstOrNull()
+                                        ?: throw IllegalArgumentException("A tangens függvényhez meg kell adni egy kifejezést!")
+                                    TanNode(arg, isDegreeMode)
+                                }
+                                "cot", "ctg", "kotangens" -> {
+                                    val arg = argNodes.firstOrNull()
+                                        ?: throw IllegalArgumentException("A kotangens függvényhez meg kell adni egy kifejezést!")
+                                    CotNode(arg, isDegreeMode)
+                                }
                                 else -> throw IllegalArgumentException("Ismeretlen függvény: '$varName'")
                             }
                         }
@@ -372,7 +428,7 @@ class MathExpressionParser {
 
                         if (userFunc != null && userFunc.parameters.isEmpty()) {
                             val bodyParser = MathExpressionParser()
-                            val bodyTree = bodyParser.parse(userFunc.expressionBody, variables, userFunctions)
+                            val bodyTree = bodyParser.parse(userFunc.expressionBody, variables, userFunctions, isDegreeMode)
                             FunctionCallNode(
                                 functionName = varName,
                                 argumentNodes = emptyList(),
