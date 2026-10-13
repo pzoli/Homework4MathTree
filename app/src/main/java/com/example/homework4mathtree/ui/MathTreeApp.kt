@@ -12,6 +12,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -23,94 +24,40 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.homework4mathtree.model.MathNode
-import com.example.homework4mathtree.parser.MathExpressionParser
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.homework4mathtree.parser.UserFunction
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MathTreeApp() {
-    var expressionText by remember { mutableStateOf("függvény1(10 * a + 2 * függvény2(b))") }
-    var variableInputs by remember { mutableStateOf(mapOf("a" to "1", "b" to "3", "x" to "45")) }
-    var isDegreeMode by remember { mutableStateOf(true) } // true: Fok (DEG), false: Radián (RAD)
+fun MathTreeApp(
+    viewModel: MathTreeViewModel = viewModel()
+) {
+    val expressionText = viewModel.expressionText
+    val variableInputs = viewModel.variableInputs
+    val isDegreeMode = viewModel.isDegreeMode
+    val userFunctionsList = viewModel.userFunctionsList
+    val selectedTab = viewModel.selectedTab
+    val parsedTree = viewModel.parsedTree
+    val errorMessage = viewModel.errorMessage
 
-    var userFunctionsList by remember {
-        mutableStateOf(
-            listOf(
-                UserFunction(
-                    name = "függvény1",
-                    parameters = listOf("x"),
-                    expressionBody = "2 * x"
-                ),
-                UserFunction(
-                    name = "függvény2",
-                    parameters = listOf("b"),
-                    expressionBody = "b ^ 2"
-                )
-            )
-        )
-    }
+    // Változó hozzáadása dialog állapotok (rememberSaveable a forgatás túléléséhez)
+    var showAddVarDialog by rememberSaveable { mutableStateOf(false) }
+    var newVarName by rememberSaveable { mutableStateOf("") }
+    var newVarValue by rememberSaveable { mutableStateOf("") }
 
-    var parsedTree by remember { mutableStateOf<MathNode?>(null) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: Kártya Nézet, 1: Grafikus Ábra
+    // Függvény hozzáadása / szerkesztése dialog állapotok
+    var showFuncDialog by rememberSaveable { mutableStateOf(false) }
+    var editingFuncIndex by rememberSaveable { mutableStateOf<Int?>(null) }
+    var funcNameInput by rememberSaveable { mutableStateOf("") }
+    var funcParamsInput by rememberSaveable { mutableStateOf("") }
+    var funcBodyInput by rememberSaveable { mutableStateOf("") }
 
-    // Változó hozzáadása dialog
-    var showAddVarDialog by remember { mutableStateOf(false) }
-    var newVarName by remember { mutableStateOf("") }
-    var newVarValue by remember { mutableStateOf("") }
-
-    // Függvény hozzáadása / szerkesztése dialog
-    var showFuncDialog by remember { mutableStateOf(false) }
-    var editingFuncIndex by remember { mutableStateOf<Int?>(null) }
-    var funcNameInput by remember { mutableStateOf("") }
-    var funcParamsInput by remember { mutableStateOf("") }
-    var funcBodyInput by remember { mutableStateOf("") }
-
-    val parser = remember { MathExpressionParser() }
     val keyboardController = LocalSoftwareKeyboardController.current
     val scrollState = rememberScrollState()
 
-    fun getUserFunctionsMap(): Map<String, UserFunction> {
-        return userFunctionsList.associateBy { it.name }
-    }
-
-    // Automatikus változó felismerés kifejezés vagy függvények változásakor
-    LaunchedEffect(expressionText, userFunctionsList) {
-        val userFuncMap = getUserFunctionsMap()
-        val detectedVars = parser.extractVariables(expressionText, userFuncMap)
-        val updatedMap = variableInputs.toMutableMap()
-        var changed = false
-        detectedVars.forEach { varName ->
-            if (!updatedMap.containsKey(varName)) {
-                updatedMap[varName] = "1"
-                changed = true
-            }
-        }
-        if (changed) {
-            variableInputs = updatedMap
-        }
-    }
-
     fun buildTree() {
         keyboardController?.hide()
-        errorMessage = null
-        try {
-            val doubleVariables = variableInputs.mapValues {
-                it.value.toDoubleOrNull() ?: 0.0
-            }
-            val userFuncMap = getUserFunctionsMap()
-            val root = parser.parse(expressionText, doubleVariables, userFuncMap, isDegreeMode)
-            parsedTree = root
-        } catch (e: Exception) {
-            parsedTree = null
-            errorMessage = e.message ?: "Hiba történt a kifejezés feldolgozása során!"
-        }
-    }
-
-    // Automatikus elemzés kifejezés, változók, függvények vagy szögmód módosításakor
-    LaunchedEffect(expressionText, variableInputs, userFunctionsList, isDegreeMode) {
-        buildTree()
+        viewModel.buildTree()
     }
 
     Scaffold(
@@ -167,12 +114,12 @@ fun MathTreeApp() {
                         ) {
                             FilterChip(
                                 selected = isDegreeMode,
-                                onClick = { isDegreeMode = true },
+                                onClick = { viewModel.updateDegreeMode(true) },
                                 label = { Text("Fok (°)", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                             )
                             FilterChip(
                                 selected = !isDegreeMode,
-                                onClick = { isDegreeMode = false },
+                                onClick = { viewModel.updateDegreeMode(false) },
                                 label = { Text("Rad", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                             )
                         }
@@ -180,7 +127,7 @@ fun MathTreeApp() {
 
                     OutlinedTextField(
                         value = expressionText,
-                        onValueChange = { expressionText = it },
+                        onValueChange = { viewModel.updateExpressionText(it) },
                         modifier = Modifier.fillMaxWidth(),
                         placeholder = { Text("Pl.: sin(90) + cos(0) vagy sin(x ^ 2)") },
                         singleLine = true,
@@ -188,7 +135,7 @@ fun MathTreeApp() {
                         keyboardActions = KeyboardActions(onDone = { buildTree() }),
                         trailingIcon = {
                             if (expressionText.isNotEmpty()) {
-                                TextButton(onClick = { expressionText = "" }) {
+                                TextButton(onClick = { viewModel.updateExpressionText("") }) {
                                     Text("✕")
                                 }
                             }
@@ -209,7 +156,7 @@ fun MathTreeApp() {
 
                         symbols.distinct().forEach { symbol ->
                             SuggestionChip(
-                                onClick = { expressionText += " $symbol " },
+                                onClick = { viewModel.updateExpressionText(expressionText + " $symbol ") },
                                 label = {
                                     Text(
                                         text = symbol,
@@ -244,9 +191,7 @@ fun MathTreeApp() {
                         presets.forEach { preset ->
                             FilterChip(
                                 selected = expressionText == preset,
-                                onClick = {
-                                    expressionText = preset
-                                },
+                                onClick = { viewModel.updateExpressionText(preset) },
                                 label = { Text(preset, fontSize = 12.sp) }
                             )
                         }
@@ -358,7 +303,7 @@ fun MathTreeApp() {
                                         }
                                         IconButton(
                                             onClick = {
-                                                userFunctionsList = userFunctionsList.toMutableList().apply { removeAt(index) }
+                                                viewModel.removeUserFunction(index)
                                             }
                                         ) {
                                             Text("🗑️", fontSize = 16.sp)
@@ -436,7 +381,7 @@ fun MathTreeApp() {
                                 OutlinedTextField(
                                     value = varValStr,
                                     onValueChange = { newVal ->
-                                        variableInputs = variableInputs + (varName to newVal)
+                                        viewModel.updateVariableInput(varName, newVal)
                                     },
                                     modifier = Modifier.weight(1f),
                                     singleLine = true,
@@ -449,7 +394,7 @@ fun MathTreeApp() {
 
                                 IconButton(
                                     onClick = {
-                                        variableInputs = variableInputs - varName
+                                        viewModel.removeVariable(varName)
                                     }
                                 ) {
                                     Text("🗑️", fontSize = 16.sp)
@@ -539,12 +484,12 @@ fun MathTreeApp() {
                 TabRow(selectedTabIndex = selectedTab) {
                     Tab(
                         selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
+                        onClick = { viewModel.updateSelectedTab(0) },
                         text = { Text("Hierarchikus Fa", fontWeight = FontWeight.Bold) }
                     )
                     Tab(
                         selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
+                        onClick = { viewModel.updateSelectedTab(1) },
                         text = { Text("Grafikus Ábra", fontWeight = FontWeight.Bold) }
                     )
                 }
@@ -616,15 +561,8 @@ fun MathTreeApp() {
                                 expressionBody = funcBodyInput
                             )
 
-                            val updatedList = userFunctionsList.toMutableList()
-                            if (editingFuncIndex != null) {
-                                updatedList[editingFuncIndex!!] = newFunc
-                            } else {
-                                updatedList.add(newFunc)
-                            }
-                            userFunctionsList = updatedList
+                            viewModel.addOrUpdateUserFunction(newFunc, editingFuncIndex)
                             showFuncDialog = false
-                            buildTree()
                         }
                     }
                 ) {
@@ -665,11 +603,13 @@ fun MathTreeApp() {
                 Button(
                     onClick = {
                         if (newVarName.isNotEmpty()) {
-                            variableInputs = variableInputs + (newVarName to if (newVarValue.isEmpty()) "0" else newVarValue)
+                            viewModel.addVariable(
+                                newVarName,
+                                if (newVarValue.isEmpty()) "0" else newVarValue
+                            )
                             newVarName = ""
                             newVarValue = ""
                             showAddVarDialog = false
-                            buildTree()
                         }
                     }
                 ) {
