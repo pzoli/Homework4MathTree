@@ -318,10 +318,10 @@ fun MathTreeApp(
                                                 shape = RoundedCornerShape(6.dp),
                                                 color = Color(0xFFE8F5E9)
                                             ) {
-                                                val statusText = if (rule.isFocusRule) {
-                                                    "✅ Feltétel: IGAZ -> Fókuszált címke: ${rule.focusLabel}"
-                                                } else {
-                                                    "✅ Feltétel: IGAZ -> Beállítva: ${rule.targetVariable} = ${r.assignedValue?.toDisplayString()}"
+                                                val statusText = when {
+                                                    rule.isUnconditional -> "✅ Feltétel nélküli értékadás -> ${rule.targetVariable} = ${r.assignedValue?.toDisplayString()}"
+                                                    rule.isFocusRule -> "✅ Feltétel: IGAZ -> Fókuszált címke: ${rule.focusLabel}"
+                                                    else -> "✅ Feltétel: IGAZ -> Beállítva: ${rule.targetVariable} = ${r.assignedValue?.toDisplayString()}"
                                                 }
                                                 Text(
                                                     text = statusText,
@@ -680,6 +680,10 @@ fun MathTreeApp(
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
+                        SuggestionChip(
+                            onClick = { ruleTextInput = "unconditionally conclude that x1 = 10 + y" },
+                            label = { Text("unconditionally minta", fontSize = 11.sp) }
+                        )
                         SuggestionChip(
                             onClick = { ruleTextInput = "if v1 == \"teszt\" then conclude that x1 = 10" },
                             label = { Text("conclude that minta", fontSize = 11.sp) }

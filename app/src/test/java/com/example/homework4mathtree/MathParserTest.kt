@@ -264,5 +264,20 @@ class MathParserTest {
         assertTrue(r2.isFocusRule)
         assertEquals("Klíma", r2.focusLabel)
         assertEquals("if temp > 25 then focus on Klíma", r2.toRuleText())
+
+        // Unconditional rule parsing
+        val r3 = RuleParser.parseRuleText(
+            name = "Kezdőérték szabály",
+            text = "unconditionally conclude that x1 = 10 + y"
+        )
+        assertTrue(r3.isUnconditional)
+        assertEquals("x1", r3.targetVariable)
+        assertEquals("10 + y", r3.valueExpression)
+        assertEquals("unconditionally conclude that x1 = 10 + y", r3.toRuleText())
+
+        // Test evaluation of valueExpression
+        val vars = mapOf("y" to Value.Number(5.0))
+        val valTree = parser.parse(r3.valueExpression, vars)
+        assertEquals(Value.Number(15.0), valTree.getValue())
     }
 }

@@ -3,17 +3,20 @@ package com.example.homework4mathtree.model
 import java.util.UUID
 
 /**
- * Szabály (Rule) adatmodell: "if <feltétel> then conclude that <változó> = <érték>"
- * vagy "if <feltétel> then focus on <címke>"
+ * Szabály (Rule) adatmodell:
+ * 1. Feltételes: "if <feltétel> then conclude that <változó> = <érték>"
+ * 2. Fókuszáló: "if <feltétel> then focus on <címke>"
+ * 3. Feltétel nélküli: "unconditionally conclude that <változó> = <érték>"
  */
 data class Rule(
     val id: String = UUID.randomUUID().toString(),
     val name: String,                            // Szabály neve (pl. "Szabály 1")
     val label: String = "Alapértelmezett",        // Címke csoportos fókuszhoz (pl. "Teszt", "Klíma")
-    val conditionExpression: String,             // Feltétel kifejezés (pl. "v1 == \"teszt\"" vagy "temp > 25")
+    val conditionExpression: String,             // Feltétel kifejezés (pl. "v1 == \"teszt\"" vagy "true")
     val targetVariable: String = "",             // Cél változó neve (pl. "x1" vagy "status")
-    val valueExpression: String = "",            // Beállítandó érték kifejezése (pl. "10" vagy "\"Hűtés\"")
+    val valueExpression: String = "",            // Beállítandó érték kifejezése (pl. "10 + y" vagy "\"Hűtés\"")
     val focusLabel: String? = null,              // Ha "focus on <címke>" típusú szabály
+    val isUnconditional: Boolean = false,        // true esetén feltétel nélküli szabály
     val isActive: Boolean = true
 ) {
     val isFocusRule: Boolean get() = focusLabel != null
@@ -22,10 +25,10 @@ data class Rule(
      * Visszaadja a szabály teljes szöveges formátumát.
      */
     fun toRuleText(): String {
-        return if (isFocusRule) {
-            "if $conditionExpression then focus on $focusLabel"
-        } else {
-            "if $conditionExpression then conclude that $targetVariable = $valueExpression"
+        return when {
+            isUnconditional -> "unconditionally conclude that $targetVariable = $valueExpression"
+            isFocusRule -> "if $conditionExpression then focus on $focusLabel"
+            else -> "if $conditionExpression then conclude that $targetVariable = $valueExpression"
         }
     }
 
@@ -38,6 +41,7 @@ data class Rule(
             "\"conditionExpression\":\"${escapeJson(conditionExpression)}\"," +
             "\"targetVariable\":\"${escapeJson(targetVariable)}\"," +
             "\"valueExpression\":\"${escapeJson(valueExpression)}\"," +
+            "\"isUnconditional\":$isUnconditional," +
             "\"isActive\":$isActive" +
             focusStr +
             "}"
@@ -53,6 +57,7 @@ data class Rule(
                 targetVariable = map["targetVariable"]?.toString() ?: "",
                 valueExpression = map["valueExpression"]?.toString() ?: "",
                 focusLabel = map["focusLabel"]?.toString(),
+                isUnconditional = map["isUnconditional"] as? Boolean ?: false,
                 isActive = map["isActive"] as? Boolean ?: true
             )
         }
@@ -60,8 +65,7 @@ data class Rule(
 }
 
 /**
- * Szöveges Rule Parser: leképezi az "if...then...conclude that"
- * vagy "if...then...focus on" karakterláncokat Rule objektummá.
+ * Szöveges Rule Parser: leképezi a szöveges szabályokat Rule objektummá.
  */
 object RuleParser {
     fun parseRuleText(
@@ -73,9 +77,47 @@ object RuleParser {
         val trimmed = text.trim()
         val lower = trimmed.lowercase()
 
+        // 1. Feltétel nélküli szabály: "unconditionally conclude that x1 = 10 + y"
+        if (lower.startsWith("unconditionally")) {
+            var rest = trimmed.substring(15).trim()
+            val restLower = rest.lowercase()
+            if (restLower.startsWith("conclude that")) {
+                rest = rest.substring(13).trim()
+            } else if (restLower.startsWith("conclude")) {
+                rest = rest.substring(8).trim()
+            }
+
+            val eqIndex = rest.indexOf('=')
+            if (eqIndex == -1) {
+                throw IllegalArgumentException("Feltétel nélküli szabály esetén is meg kell adni egy 'változó = kifejezés' értékadást! Pl.: unconditionally conclude that x1 = 10 + y")
+            }
+
+            val targetVar = rest.substring(0, eqIndex).trim()
+            val valExpr = rest.substring(eqIndex + 1).trim()
+
+            if (targetVar.isEmpty()) {
+                throw IllegalArgumentException("Hiányzó cél változó név az '=' előtt!")
+            }
+            if (valExpr.isEmpty()) {
+                throw IllegalArgumentException("Hiányzó érték kifejezés az '=' után!")
+            }
+
+            return Rule(
+                id = id,
+                name = name,
+                label = defaultLabel,
+                conditionExpression = "true",
+                targetVariable = targetVar,
+                valueExpression = valExpr,
+                focusLabel = null,
+                isUnconditional = true
+            )
+        }
+
+        // 2. Feltételes szabály "if...then..."
         val ifIndex = lower.indexOf("if")
         if (ifIndex == -1) {
-            throw IllegalArgumentException("A szabálynak tartalmaznia kell az 'if' kulcsszót! Pl.: if temp > 25 then conclude that status = 10")
+            throw IllegalArgumentException("A szabálynak 'if...then...', 'if...focus on' vagy 'unconditionally conclude that' formátumúnak kell lennie!")
         }
 
         val thenIndex = lower.indexOf("then", ifIndex + 2)
@@ -91,7 +133,7 @@ object RuleParser {
         val afterThen = trimmed.substring(thenIndex + 4).trim()
         val afterThenLower = afterThen.lowercase()
 
-        // 1. "focus on <címke>" vagy "focuse on <címke>" típusú szabályok
+        // 2a. "focus on <címke>"
         if (afterThenLower.startsWith("focus on") || afterThenLower.startsWith("focuse on")) {
             val focusTarget = afterThen.substring(afterThen.indexOf("on", ignoreCase = true) + 2).trim()
             if (focusTarget.isEmpty()) {
@@ -104,11 +146,12 @@ object RuleParser {
                 conditionExpression = condition,
                 targetVariable = "",
                 valueExpression = "",
-                focusLabel = focusTarget
+                focusLabel = focusTarget,
+                isUnconditional = false
             )
         }
 
-        // 2. "conclude that <változó> = <kifejezés>" típusú szabályok
+        // 2b. "conclude that <változó> = <kifejezés>"
         var concludePart = afterThen
         if (afterThenLower.startsWith("conclude that")) {
             concludePart = afterThen.substring(13).trim()
@@ -138,7 +181,8 @@ object RuleParser {
             conditionExpression = condition,
             targetVariable = targetVar,
             valueExpression = valExpr,
-            focusLabel = null
+            focusLabel = null,
+            isUnconditional = false
         )
     }
 }
@@ -211,11 +255,19 @@ data class Simulation(
     val workspaces: Map<String, Workspace> = mapOf(
         "Fő_Munkaterület" to Workspace(
             name = "Fő_Munkaterület",
-            variables = mapOf("v1" to "teszt", "a" to "1", "b" to "3", "temp" to "28", "isHot" to "true"),
+            variables = mapOf("v1" to "teszt", "a" to "1", "b" to "3", "temp" to "28", "isHot" to "true", "y" to "5"),
             functions = listOf(
                 UserFunctionData("függvény1", listOf("x"), "2 * x")
             ),
             rules = listOf(
+                Rule(
+                    name = "Szabály 0 - Feltétel nélküli kezdőérték",
+                    label = "Kezdőértékek",
+                    conditionExpression = "true",
+                    targetVariable = "x1",
+                    valueExpression = "10 + y",
+                    isUnconditional = true
+                ),
                 Rule(
                     name = "Szabály 1 - Teszt ellenőrzés",
                     label = "Teszt",
