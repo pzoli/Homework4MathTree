@@ -280,4 +280,28 @@ class MathParserTest {
         val valTree = parser.parse(r3.valueExpression, vars)
         assertEquals(Value.Number(15.0), valTree.getValue())
     }
+
+    @Test
+    fun testChainingAndReferencedVariables() {
+        val ruleText = "if x1 <= 10 then conclude that x1 = x1 + 2"
+        val rule = RuleParser.parseRuleText("Chaining Rule", ruleText)
+
+        assertEquals("x1 <= 10", rule.conditionExpression)
+        assertEquals("x1", rule.targetVariable)
+        assertEquals("x1 + 2", rule.valueExpression)
+        assertTrue(rule.mayCauseChaining)
+        assertEquals(listOf("x1"), rule.referencedVariables)
+
+        // Test step 1: x1 = 2 -> 2 <= 10 -> true -> x1 = 4
+        var vars = mapOf("x1" to Value.Number(2.0))
+        var condNode = parser.parse(rule.conditionExpression, vars)
+        assertTrue(condNode.getValue().toBoolean())
+        val valNode = parser.parse(rule.valueExpression, vars)
+        assertEquals(4.0, valNode.getValue().toDouble(), 0.0001)
+
+        // Test step 5: x1 = 12 -> 12 <= 10 -> false (stops chaining)
+        vars = mapOf("x1" to Value.Number(12.0))
+        condNode = parser.parse(rule.conditionExpression, vars)
+        assertFalse(condNode.getValue().toBoolean())
+    }
 }

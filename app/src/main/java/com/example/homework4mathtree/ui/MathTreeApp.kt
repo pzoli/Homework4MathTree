@@ -34,8 +34,9 @@ fun MathTreeApp(
     val userFunctionsList = viewModel.userFunctionsList
     val rulesList = viewModel.rulesList
     val ruleResults = viewModel.ruleResults
-    val selectedLabelFilter = viewModel.selectedLabelFilter
-    val availableLabels = viewModel.availableLabels
+
+    val isQueueProcessing = viewModel.isQueueProcessing
+    val processQueueSize = viewModel.processQueueSize
 
     val selectedRuleForTreeDialog = viewModel.selectedRuleForTreeDialog
     val selectedRuleConditionTree = viewModel.selectedRuleConditionTree
@@ -62,12 +63,13 @@ fun MathTreeApp(
     var funcParamsInput by rememberSaveable { mutableStateOf("") }
     var funcBodyInput by rememberSaveable { mutableStateOf("") }
 
-    // Szabály (Rule) hozzáadása / szerkesztése dialog állapotok (Egyetlen szövegmező a szabály szövegének)
+    // Szabály (Rule) hozzáadása / szerkesztése dialog állapotok
     var showRuleDialog by rememberSaveable { mutableStateOf(false) }
     var editingRuleIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     var ruleNameInput by rememberSaveable { mutableStateOf("") }
     var ruleLabelInput by rememberSaveable { mutableStateOf("") }
     var ruleTextInput by rememberSaveable { mutableStateOf("") }
+    var ruleChainingInput by rememberSaveable { mutableStateOf(true) }
     var ruleDialogError by rememberSaveable { mutableStateOf<String?>(null) }
 
     var ruleDialogTab by remember { mutableIntStateOf(0) }
@@ -79,7 +81,7 @@ fun MathTreeApp(
             TopAppBar(
                 title = {
                     Text(
-                        text = "Matematikai Bináris Fa & Rule Építő",
+                        text = "Matematikai Bináris Fa & Rule Engine",
                         fontWeight = FontWeight.Bold
                     )
                 },
@@ -160,7 +162,7 @@ fun MathTreeApp(
                 }
             }
 
-            // Szabályok (Rules) Szekció: if...then...conclude that vagy if...then...focus on
+            // Szabályok (Rules) Szekció: Process Queue és Initialization
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -178,46 +180,33 @@ fun MathTreeApp(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Szabályok (Rules - if...then...):",
+                            text = "Szabályok (Rules Process Queue):",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
+
+                        // Initialization Gomb: Az "init" szabályokat a process queue-ba teszi
                         Button(
-                            onClick = { viewModel.evaluateRules() },
-                            shape = RoundedCornerShape(10.dp)
+                            onClick = { viewModel.triggerInitialization() },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                         ) {
-                            Text("▶️ Szabályok Futtatása", fontWeight = FontWeight.Bold)
+                            Text("🚀 Initialization", fontWeight = FontWeight.Bold)
                         }
                     }
 
-                    // Címke (Label) szűrő és fókuszálás gombok
-                    Text(
-                        text = "Fókuszálás Címke (Tag) alapján:",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilterChip(
-                            selected = selectedLabelFilter == null || selectedLabelFilter == "Összes",
-                            onClick = {
-                                viewModel.selectLabelFilter("Összes")
-                                viewModel.evaluateRules("Összes")
-                            },
-                            label = { Text("Összes Címke", fontWeight = FontWeight.Bold) }
-                        )
-                        availableLabels.forEach { labelName ->
-                            FilterChip(
-                                selected = selectedLabelFilter == labelName,
-                                onClick = {
-                                    viewModel.selectLabelFilter(labelName)
-                                    viewModel.evaluateRules(labelName)
-                                },
-                                label = { Text("🏷️ $labelName") }
+                    // Process Queue Állapotjelző
+                    if (isQueueProcessing) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            Text(
+                                text = "⚙️ Process Queue futtatása ($processQueueSize szabály a sorban)...",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
@@ -231,7 +220,8 @@ fun MathTreeApp(
                                 editingRuleIndex = null
                                 ruleNameInput = "Szabály ${rulesList.size + 1}"
                                 ruleLabelInput = "Alapértelmezett"
-                                ruleTextInput = "if v1 == \"teszt\" then conclude that x1 = 10"
+                                ruleTextInput = "if x1 <= 10 then conclude that x1 = x1 + 2"
+                                ruleChainingInput = true
                                 ruleDialogError = null
                                 showRuleDialog = true
                             }
@@ -287,6 +277,7 @@ fun MathTreeApp(
                                                     ruleNameInput = rule.name
                                                     ruleLabelInput = rule.label
                                                     ruleTextInput = rule.toRuleText()
+                                                    ruleChainingInput = rule.mayCauseChaining
                                                     ruleDialogError = null
                                                     showRuleDialog = true
                                                 }
@@ -311,6 +302,14 @@ fun MathTreeApp(
                                         fontWeight = FontWeight.SemiBold,
                                         color = MaterialTheme.colorScheme.primary
                                     )
+
+                                    if (rule.referencedVariables.isNotEmpty()) {
+                                        Text(
+                                            text = "Hivatkozott változók: [ ${rule.referencedVariables.joinToString(", ")} ]",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
 
                                     // Kiértékelési állapot
                                     res?.let { r ->
@@ -651,7 +650,7 @@ fun MathTreeApp(
         )
     }
 
-    // Új / Szerkesztendő Szabály párbeszédablak (Egyetlen Összefüggő Szövegmezővel)
+    // Új / Szerkesztendő Szabály párbeszédablak
     if (showRuleDialog) {
         AlertDialog(
             onDismissRequest = { showRuleDialog = false },
@@ -672,9 +671,25 @@ fun MathTreeApp(
                     OutlinedTextField(
                         value = ruleLabelInput,
                         onValueChange = { ruleLabelInput = it },
-                        label = { Text("Címke / Tag (pl. Klíma, Teszt)") },
+                        label = { Text("Címke / Tag (pl. init, Klíma, Teszt)") },
                         singleLine = true
                     )
+
+                    // Láncolás (Chaining) engedélyezése
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Checkbox(
+                            checked = ruleChainingInput,
+                            onCheckedChange = { ruleChainingInput = it }
+                        )
+                        Text(
+                            text = "A változó módosulása indítson láncolást (Chaining)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
 
                     // Minta beszúrás chip-ek
                     Text(text = "Minta formátumok:", style = MaterialTheme.typography.labelSmall)
@@ -685,12 +700,12 @@ fun MathTreeApp(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         SuggestionChip(
-                            onClick = { ruleTextInput = "unconditionally conclude that x1 = 10 + y" },
-                            label = { Text("unconditionally minta", fontSize = 11.sp) }
+                            onClick = { ruleTextInput = "if x1 <= 10 then conclude that x1 = x1 + 2" },
+                            label = { Text("x1 = x1 + 2 (Chaining)", fontSize = 11.sp) }
                         )
                         SuggestionChip(
-                            onClick = { ruleTextInput = "if v1 == \"teszt\" then conclude that x1 = 10" },
-                            label = { Text("conclude that minta", fontSize = 11.sp) }
+                            onClick = { ruleTextInput = "unconditionally conclude that x1 = 10 + y" },
+                            label = { Text("unconditionally minta", fontSize = 11.sp) }
                         )
                         SuggestionChip(
                             onClick = { ruleTextInput = "if temp > 25 then focus on Klíma" },
@@ -706,7 +721,7 @@ fun MathTreeApp(
                             ruleDialogError = null
                         },
                         label = { Text("Szabály Szövege (if...then...)") },
-                        placeholder = { Text("pl.: if temp > 25 then conclude that status = \"Hűtés_szükséges\"") },
+                        placeholder = { Text("pl.: if x1 <= 10 then conclude that x1 = x1 + 2") },
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 3,
                         maxLines = 5,
@@ -726,6 +741,7 @@ fun MathTreeApp(
                                 name = ruleNameInput.ifEmpty { "Szabály" },
                                 text = ruleTextInput,
                                 defaultLabel = ruleLabelInput.ifEmpty { "Alapértelmezett" },
+                                mayCauseChaining = ruleChainingInput,
                                 id = if (editingRuleIndex != null && editingRuleIndex!! in rulesList.indices) {
                                     rulesList[editingRuleIndex!!].id
                                 } else {

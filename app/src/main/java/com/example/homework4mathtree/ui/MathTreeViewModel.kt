@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.example.homework4mathtree.model.MathNode
 import com.example.homework4mathtree.model.Rule
 import com.example.homework4mathtree.model.Simulation
@@ -13,6 +14,10 @@ import com.example.homework4mathtree.model.Value
 import com.example.homework4mathtree.model.Workspace
 import com.example.homework4mathtree.parser.MathExpressionParser
 import com.example.homework4mathtree.parser.UserFunction
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class RuleResult(
     val conditionMet: Boolean,
@@ -21,8 +26,8 @@ data class RuleResult(
 )
 
 /**
- * ViewModel a Munkaterületeket (Workspaces) tároló Szimuláció (Simulation)
- * és a Szabályok (Rules: if...then...conclude that) kiértékelésének kezelésére.
+ * ViewModel a Munkaterületeket (Workspaces) tároló Szimuláció (Simulation),
+ * a Szabályok (Rules) és az aszinkron Process Queue kiértékelési motor kezelésére.
  */
 class MathTreeViewModel : ViewModel() {
 
@@ -35,8 +40,11 @@ class MathTreeViewModel : ViewModel() {
     var isDegreeMode by mutableStateOf(true) // true: Fok (DEG), false: Radián (RAD)
         private set
 
-    // Aktuális fókuszált címke szűrő (null = Összes címke)
-    var selectedLabelFilter by mutableStateOf<String?>(null)
+    // Process Queue állapotok
+    var isQueueProcessing by mutableStateOf(false)
+        private set
+
+    var processQueueSize by mutableIntStateOf(0)
         private set
 
     // Szabályok kiértékelési eredményei (ruleId -> RuleResult)
@@ -67,12 +75,22 @@ class MathTreeViewModel : ViewModel() {
     val rulesList: List<Rule>
         get() = activeWorkspace.rules
 
-    val availableLabels: List<String>
-        get() = rulesList.map { it.label }.distinct()
-
     init {
         autoDetectVariables()
         evaluateRules()
+    }
+
+    /**
+     * Initialization gomb: Az "init" vagy "initialization" címkéjű (valamint a feltétel nélküli)
+     * szabályokat beteszi a Process Queue-ba és elindítja az aszinkron feldolgozást.
+     */
+    fun triggerInitialization() {
+        val initRules = activeWorkspace.rules.filter {
+            it.label.equals("init", ignoreCase = true) ||
+                it.label.equals("initialization", ignoreCase = true) ||
+                it.isUnconditional
+        }
+        enqueueAndProcessRules(initRules)
     }
 
     fun switchWorkspace(workspaceName: String) {
@@ -115,10 +133,6 @@ class MathTreeViewModel : ViewModel() {
             autoDetectVariables()
             evaluateRules()
         }
-    }
-
-    fun selectLabelFilter(label: String?) {
-        selectedLabelFilter = label
     }
 
     fun updateVariableInput(varName: String, valueStr: String) {
@@ -228,31 +242,50 @@ class MathTreeViewModel : ViewModel() {
     }
 
     /**
-     * Szabályok kiértékelése (Futtatása).
-     * Ha szűrő van beállítva (selectedLabelFilter), csak az adott címkével rendelkező szabályok futnak le.
-     * A "focus on <címke>" típusú szabályok rekurzívan lefuttatják a cél címkéhez tartozó szabályokat is.
+     * Szabályok kiértékelése Aszinkron módon a Process Queue használatával.
      */
-    fun evaluateRules(labelFilter: String? = selectedLabelFilter) {
-        errorMessage = null
-        val currentWs = activeWorkspace
-        val updatedVars = currentWs.variables.toMutableMap()
-        val resultsMap = mutableMapOf<String, RuleResult>()
+    fun evaluateRules() {
+        enqueueAndProcessRules(activeWorkspace.rules)
+    }
 
-        val userFuncMap = currentWs.functions.associate {
-            it.name to UserFunction(it.name, it.parameters, it.expressionBody)
-        }
+    /**
+     * Aszinkron ütemezett szabály-feldolgozó motor (Process Queue).
+     * Ha egy változó értéke megváltozik ÉS a szabály engedélyezi a láncolást (mayCauseChaining = true),
+     * a program automatikusan sorba állítja az adott változóra hivatkozó szabályokat.
+     */
+    fun enqueueAndProcessRules(rulesToEnqueue: List<Rule>) {
+        viewModelScope.launch(Dispatchers.Default) {
+            val queue = ArrayDeque<Rule>()
+            queue.addAll(rulesToEnqueue)
 
-        fun evaluateRuleList(rulesToRun: List<Rule>) {
-            rulesToRun.forEach { rule ->
-                if (!rule.isActive) return@forEach
-                if (labelFilter != null && labelFilter != "Összes" && rule.label != labelFilter) {
-                    return@forEach
+            val updatedVars = activeWorkspace.variables.toMutableMap()
+            val resultsMap = ruleResults.toMutableMap()
+            val userFuncMap = activeWorkspace.functions.associate {
+                it.name to UserFunction(it.name, it.parameters, it.expressionBody)
+            }
+
+            var iterations = 0
+            val maxIterations = 100 // Végtelen ciklus elleni védelem
+
+            withContext(Dispatchers.Main) {
+                isQueueProcessing = true
+                processQueueSize = queue.size
+            }
+
+            while (queue.isNotEmpty() && iterations < maxIterations) {
+                iterations++
+                val currentRule = queue.removeFirst()
+
+                withContext(Dispatchers.Main) {
+                    processQueueSize = queue.size
                 }
+
+                delay(50) // Késleltetés az ütemezés vizuális követhetőségéhez
 
                 try {
                     val valueVariables = updatedVars.mapValues { parseVariableValue(it.value) }
                     val condNode = parser.parse(
-                        input = rule.conditionExpression,
+                        input = currentRule.conditionExpression,
                         variables = valueVariables,
                         userFunctions = userFuncMap,
                         isDegreeMode = isDegreeMode,
@@ -261,43 +294,62 @@ class MathTreeViewModel : ViewModel() {
                     val condMet = condNode.getValue().toBoolean()
 
                     if (condMet) {
-                        if (rule.isFocusRule) {
-                            resultsMap[rule.id] = RuleResult(conditionMet = true)
-                            val targetLabel = rule.focusLabel
+                        if (currentRule.isFocusRule) {
+                            resultsMap[currentRule.id] = RuleResult(conditionMet = true)
+                            val targetLabel = currentRule.focusLabel
                             if (targetLabel != null) {
-                                val focusRules = currentWs.rules.filter {
-                                    it.label.equals(targetLabel, ignoreCase = true) && it.id != rule.id
+                                val focusRules = activeWorkspace.rules.filter {
+                                    it.label.equals(targetLabel, ignoreCase = true) && !queue.contains(it)
                                 }
-                                evaluateRuleList(focusRules)
+                                queue.addAll(focusRules)
                             }
                         } else {
                             val valueNode = parser.parse(
-                                input = rule.valueExpression,
+                                input = currentRule.valueExpression,
                                 variables = valueVariables,
                                 userFunctions = userFuncMap,
                                 isDegreeMode = isDegreeMode,
                                 simulation = simulation
                             )
                             val assignedVal = valueNode.getValue()
-                            updatedVars[rule.targetVariable] = assignedVal.toDisplayString()
-                            resultsMap[rule.id] = RuleResult(conditionMet = true, assignedValue = assignedVal)
+                            val newDisplayStr = assignedVal.toDisplayString()
+                            val oldValue = updatedVars[currentRule.targetVariable]
+
+                            val valueChanged = oldValue != newDisplayStr
+                            updatedVars[currentRule.targetVariable] = newDisplayStr
+                            resultsMap[currentRule.id] = RuleResult(conditionMet = true, assignedValue = assignedVal)
+
+                            // Ha a változó értéke megváltozott ÉS a szabály engedélyezi a chaining-et:
+                            if (valueChanged && currentRule.mayCauseChaining) {
+                                val dependentRules = activeWorkspace.rules.filter { dependentRule ->
+                                    dependentRule.isActive &&
+                                        dependentRule.referencedVariables.contains(currentRule.targetVariable) &&
+                                        !queue.contains(dependentRule)
+                                }
+                                queue.addAll(dependentRules)
+                            }
                         }
                     } else {
-                        resultsMap[rule.id] = RuleResult(conditionMet = false)
+                        resultsMap[currentRule.id] = RuleResult(conditionMet = false)
                     }
                 } catch (e: Exception) {
-                    resultsMap[rule.id] = RuleResult(conditionMet = false, errorMessage = e.message)
+                    resultsMap[currentRule.id] = RuleResult(conditionMet = false, errorMessage = e.message)
+                }
+
+                withContext(Dispatchers.Main) {
+                    ruleResults = resultsMap.toMap()
+                    if (updatedVars != activeWorkspace.variables) {
+                        val updatedWs = activeWorkspace.copy(variables = updatedVars)
+                        val updatedWorkspaces = simulation.workspaces + (updatedWs.name to updatedWs)
+                        simulation = simulation.copy(workspaces = updatedWorkspaces)
+                    }
                 }
             }
-        }
 
-        evaluateRuleList(currentWs.rules)
-
-        ruleResults = resultsMap
-        if (updatedVars != currentWs.variables) {
-            val updatedWs = currentWs.copy(variables = updatedVars)
-            val updatedWorkspaces = simulation.workspaces + (updatedWs.name to updatedWs)
-            simulation = simulation.copy(workspaces = updatedWorkspaces)
+            withContext(Dispatchers.Main) {
+                isQueueProcessing = false
+                processQueueSize = 0
+            }
         }
     }
 

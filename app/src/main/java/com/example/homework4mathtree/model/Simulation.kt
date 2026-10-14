@@ -1,5 +1,6 @@
 package com.example.homework4mathtree.model
 
+import com.example.homework4mathtree.parser.MathExpressionParser
 import java.util.UUID
 
 /**
@@ -11,12 +12,14 @@ import java.util.UUID
 data class Rule(
     val id: String = UUID.randomUUID().toString(),
     val name: String,                            // Szabály neve (pl. "Szabály 1")
-    val label: String = "Alapértelmezett",        // Címke csoportos fókuszhoz (pl. "Teszt", "Klíma")
-    val conditionExpression: String,             // Feltétel kifejezés (pl. "v1 == \"teszt\"" vagy "true")
+    val label: String = "Alapértelmezett",        // Címke (pl. "init", "Teszt", "Klíma")
+    val conditionExpression: String,             // Feltétel kifejezés (pl. "x1 <= 10")
     val targetVariable: String = "",             // Cél változó neve (pl. "x1" vagy "status")
-    val valueExpression: String = "",            // Beállítandó érték kifejezése (pl. "10 + y" vagy "\"Hűtés\"")
+    val valueExpression: String = "",            // Beállítandó érték kifejezése (pl. "x1 + 2")
     val focusLabel: String? = null,              // Ha "focus on <címke>" típusú szabály
     val isUnconditional: Boolean = false,        // true esetén feltétel nélküli szabály
+    val mayCauseChaining: Boolean = true,        // Szabályozza, hogy az értékadás indítson-e újabb szabály kiértékelést
+    val referencedVariables: List<String> = emptyList(), // A feltételben (condition) hivatkozott változók
     val isActive: Boolean = true
 ) {
     val isFocusRule: Boolean get() = focusLabel != null
@@ -34,6 +37,7 @@ data class Rule(
 
     fun toJsonString(): String {
         val focusStr = if (focusLabel != null) ",\"focusLabel\":\"${escapeJson(focusLabel)}\"" else ""
+        val refVarsStr = referencedVariables.joinToString(",") { "\"${escapeJson(it)}\"" }
         return "{" +
             "\"id\":\"${escapeJson(id)}\"," +
             "\"name\":\"${escapeJson(name)}\"," +
@@ -42,22 +46,31 @@ data class Rule(
             "\"targetVariable\":\"${escapeJson(targetVariable)}\"," +
             "\"valueExpression\":\"${escapeJson(valueExpression)}\"," +
             "\"isUnconditional\":$isUnconditional," +
+            "\"mayCauseChaining\":$mayCauseChaining," +
+            "\"referencedVariables\":[$refVarsStr]," +
             "\"isActive\":$isActive" +
             focusStr +
             "}"
     }
 
     companion object {
+        @Suppress("UNCHECKED_CAST")
         fun fromMap(map: Map<String, Any?>): Rule {
+            val cond = map["conditionExpression"]?.toString() ?: "true"
+            val refVars = (map["referencedVariables"] as? List<*>)?.mapNotNull { it?.toString() }
+                ?: MathExpressionParser().extractVariables(cond)
+
             return Rule(
                 id = map["id"]?.toString() ?: UUID.randomUUID().toString(),
                 name = map["name"]?.toString() ?: "Szabály",
                 label = map["label"]?.toString() ?: "Alapértelmezett",
-                conditionExpression = map["conditionExpression"]?.toString() ?: "true",
+                conditionExpression = cond,
                 targetVariable = map["targetVariable"]?.toString() ?: "",
                 valueExpression = map["valueExpression"]?.toString() ?: "",
                 focusLabel = map["focusLabel"]?.toString(),
                 isUnconditional = map["isUnconditional"] as? Boolean ?: false,
+                mayCauseChaining = map["mayCauseChaining"] as? Boolean ?: true,
+                referencedVariables = refVars,
                 isActive = map["isActive"] as? Boolean ?: true
             )
         }
@@ -66,16 +79,19 @@ data class Rule(
 
 /**
  * Szöveges Rule Parser: leképezi a szöveges szabályokat Rule objektummá.
+ * Automatikusan kinyeri a feltételben (condition) hivatkozott változók listáját.
  */
 object RuleParser {
     fun parseRuleText(
         name: String,
         text: String,
         defaultLabel: String = "Alapértelmezett",
+        mayCauseChaining: Boolean = true,
         id: String = UUID.randomUUID().toString()
     ): Rule {
         val trimmed = text.trim()
         val lower = trimmed.lowercase()
+        val parser = MathExpressionParser()
 
         // 1. Feltétel nélküli szabály: "unconditionally conclude that x1 = 10 + y"
         if (lower.startsWith("unconditionally")) {
@@ -110,7 +126,9 @@ object RuleParser {
                 targetVariable = targetVar,
                 valueExpression = valExpr,
                 focusLabel = null,
-                isUnconditional = true
+                isUnconditional = true,
+                mayCauseChaining = mayCauseChaining,
+                referencedVariables = emptyList()
             )
         }
 
@@ -130,6 +148,8 @@ object RuleParser {
             throw IllegalArgumentException("Az 'if' és 'then' közötti feltétel nem lehet üres!")
         }
 
+        val refVars = parser.extractVariables(condition)
+
         val afterThen = trimmed.substring(thenIndex + 4).trim()
         val afterThenLower = afterThen.lowercase()
 
@@ -147,7 +167,9 @@ object RuleParser {
                 targetVariable = "",
                 valueExpression = "",
                 focusLabel = focusTarget,
-                isUnconditional = false
+                isUnconditional = false,
+                mayCauseChaining = mayCauseChaining,
+                referencedVariables = refVars
             )
         }
 
@@ -182,7 +204,9 @@ object RuleParser {
             targetVariable = targetVar,
             valueExpression = valExpr,
             focusLabel = null,
-            isUnconditional = false
+            isUnconditional = false,
+            mayCauseChaining = mayCauseChaining,
+            referencedVariables = refVars
         )
     }
 }
@@ -255,38 +279,42 @@ data class Simulation(
     val workspaces: Map<String, Workspace> = mapOf(
         "Fő_Munkaterület" to Workspace(
             name = "Fő_Munkaterület",
-            variables = mapOf("v1" to "teszt", "a" to "1", "b" to "3", "temp" to "28", "isHot" to "true", "y" to "5"),
+            variables = mapOf("v1" to "teszt", "a" to "1", "b" to "3", "temp" to "28", "isHot" to "true", "x1" to "2"),
             functions = listOf(
                 UserFunctionData("függvény1", listOf("x"), "2 * x")
             ),
             rules = listOf(
                 Rule(
-                    name = "Szabály 0 - Feltétel nélküli kezdőérték",
-                    label = "Kezdőértékek",
+                    name = "Init Szabály - x1 kezdőérték",
+                    label = "init",
                     conditionExpression = "true",
                     targetVariable = "x1",
-                    valueExpression = "10 + y",
+                    valueExpression = "2",
                     isUnconditional = true
                 ),
                 Rule(
-                    name = "Szabály 1 - Teszt ellenőrzés",
+                    name = "Chaining Szabály - x1 növelése",
                     label = "Teszt",
-                    conditionExpression = "v1 == \"teszt\"",
+                    conditionExpression = "x1 <= 10",
                     targetVariable = "x1",
-                    valueExpression = "10"
+                    valueExpression = "x1 + 2",
+                    mayCauseChaining = true,
+                    referencedVariables = listOf("x1")
                 ),
                 Rule(
-                    name = "Szabály 2 - Kánikula fókusz",
-                    label = "Klíma",
+                    name = "Kánikula Fókusz",
+                    label = "init",
                     conditionExpression = "isHot == true",
-                    focusLabel = "Klíma"
+                    focusLabel = "Klíma",
+                    referencedVariables = listOf("isHot")
                 ),
                 Rule(
-                    name = "Szabály 3 - Hőmérséklet riasztás",
+                    name = "Hőmérséklet Riasztás",
                     label = "Klíma",
                     conditionExpression = "temp > 25",
                     targetVariable = "status",
-                    valueExpression = "\"Hűtés_szükséges\""
+                    valueExpression = "\"Hűtés_szükséges\"",
+                    referencedVariables = listOf("temp")
                 )
             )
         ),
@@ -303,7 +331,8 @@ data class Simulation(
                     label = "Fizika",
                     conditionExpression = "m > 0",
                     targetVariable = "F",
-                    valueExpression = "m * g"
+                    valueExpression = "m * g",
+                    referencedVariables = listOf("m")
                 )
             )
         )
