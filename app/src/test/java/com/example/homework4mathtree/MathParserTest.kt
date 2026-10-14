@@ -194,4 +194,51 @@ class MathParserTest {
         val tree5 = parser.parse("true == igaz")
         assertEquals(Value.Bool(true), tree5.getValue())
     }
+
+    @Test
+    fun testSimulationAndWorkspaces() {
+        val sim = Simulation()
+
+        // Test JSON Export & Import roundtrip
+        val jsonStr = sim.toJsonString()
+        val importedSim = Simulation.fromJsonString(jsonStr)
+
+        assertEquals(sim.activeWorkspaceName, importedSim.activeWorkspaceName)
+        assertEquals(sim.workspaces.keys, importedSim.workspaces.keys)
+
+        // Test cross-workspace expression evaluation: Fizika.f1(10 * a + 2 * Fizika.f2(b))
+        // f2(3) = 9
+        // 10*1 + 2*9 = 28
+        // f1(28) = 3 * 28 = 84
+        val tree = parser.parse(
+            input = "Fizika.f1(10 * a + 2 * Fizika.f2(b))",
+            variables = mapOf("a" to Value.Number(1.0), "b" to Value.Number(3.0)),
+            userFunctions = mapOf("függvény1" to com.example.homework4mathtree.parser.UserFunction("függvény1", listOf("x"), "2 * x")),
+            simulation = sim
+        )
+
+        assertEquals(84.0, tree.getValue().toDouble(), 0.0001)
+    }
+
+    @Test
+    fun testRuleEngineAndConditionTree() {
+        val rule = Rule(
+            name = "Teszt Szabály",
+            label = "Teszt",
+            conditionExpression = "v1 == \"teszt\"",
+            targetVariable = "x1",
+            valueExpression = "10"
+        )
+
+        val vars = mapOf("v1" to Value.Text("teszt"))
+
+        // Test condition tree evaluation
+        val condTree = parser.parse(rule.conditionExpression, vars)
+        assertTrue(condTree is EqualNode)
+        assertEquals(Value.Bool(true), condTree.getValue())
+
+        // Test value expression evaluation
+        val valueTree = parser.parse(rule.valueExpression, vars)
+        assertEquals(Value.Number(10.0), valueTree.getValue())
+    }
 }

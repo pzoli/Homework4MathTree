@@ -7,8 +7,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,26 +18,40 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.homework4mathtree.parser.UserFunction
+import com.example.homework4mathtree.model.Rule
+import com.example.homework4mathtree.model.UserFunctionData
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MathTreeApp(
     viewModel: MathTreeViewModel = viewModel()
 ) {
-    val expressionText = viewModel.expressionText
+    val simulation = viewModel.simulation
+    val activeWorkspace = viewModel.activeWorkspace
     val variableInputs = viewModel.variableInputs
-    val isDegreeMode = viewModel.isDegreeMode
     val userFunctionsList = viewModel.userFunctionsList
-    val selectedTab = viewModel.selectedTab
-    val parsedTree = viewModel.parsedTree
+    val rulesList = viewModel.rulesList
+    val ruleResults = viewModel.ruleResults
+    val selectedLabelFilter = viewModel.selectedLabelFilter
+    val availableLabels = viewModel.availableLabels
+
+    val selectedRuleForTreeDialog = viewModel.selectedRuleForTreeDialog
+    val selectedRuleConditionTree = viewModel.selectedRuleConditionTree
     val errorMessage = viewModel.errorMessage
 
-    // Változó hozzáadása dialog állapotok (rememberSaveable a forgatás túléléséhez)
+    // Munkaterület hozzáadása dialog
+    var showAddWsDialog by rememberSaveable { mutableStateOf(false) }
+    var newWsNameInput by rememberSaveable { mutableStateOf("") }
+
+    // JSON Export / Import dialogok
+    var showExportDialog by rememberSaveable { mutableStateOf(false) }
+    var showImportDialog by rememberSaveable { mutableStateOf(false) }
+    var jsonImportInput by rememberSaveable { mutableStateOf("") }
+
+    // Változó hozzáadása dialog állapotok
     var showAddVarDialog by rememberSaveable { mutableStateOf(false) }
     var newVarName by rememberSaveable { mutableStateOf("") }
     var newVarValue by rememberSaveable { mutableStateOf("") }
@@ -51,22 +63,36 @@ fun MathTreeApp(
     var funcParamsInput by rememberSaveable { mutableStateOf("") }
     var funcBodyInput by rememberSaveable { mutableStateOf("") }
 
+    // Szabály (Rule) hozzáadása / szerkesztése dialog állapotok
+    var showRuleDialog by rememberSaveable { mutableStateOf(false) }
+    var editingRuleIndex by rememberSaveable { mutableStateOf<Int?>(null) }
+    var ruleNameInput by rememberSaveable { mutableStateOf("") }
+    var ruleLabelInput by rememberSaveable { mutableStateOf("") }
+    var ruleCondInput by rememberSaveable { mutableStateOf("") }
+    var ruleTargetVarInput by rememberSaveable { mutableStateOf("") }
+    var ruleValueExprInput by rememberSaveable { mutableStateOf("") }
+
+    var ruleDialogTab by remember { mutableIntStateOf(0) }
+
     val keyboardController = LocalSoftwareKeyboardController.current
     val scrollState = rememberScrollState()
-
-    fun buildTree() {
-        keyboardController?.hide()
-        viewModel.buildTree()
-    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        text = "Matematikai Bináris Fa Építő",
+                        text = "Matematikai Bináris Fa & Rule Építő",
                         fontWeight = FontWeight.Bold
                     )
+                },
+                actions = {
+                    TextButton(onClick = { showExportDialog = true }) {
+                        Text("📤 JSON", fontWeight = FontWeight.Bold)
+                    }
+                    TextButton(onClick = { showImportDialog = true }) {
+                        Text("📥 JSON", fontWeight = FontWeight.Bold)
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -83,12 +109,65 @@ fun MathTreeApp(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Beviteli mező és kifejezés beállítások
+            // Munkaterületek (Workspaces) Kezelő Szekció
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Munkaterület (Workspace): ${activeWorkspace.name}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Row {
+                            TextButton(onClick = { showAddWsDialog = true }) {
+                                Text("+ Új Munkaterület", fontWeight = FontWeight.Bold)
+                            }
+                            if (simulation.workspaces.size > 1) {
+                                IconButton(onClick = { viewModel.deleteActiveWorkspace() }) {
+                                    Text("🗑️", fontSize = 16.sp)
+                                }
+                            }
+                        }
+                    }
+
+                    // Munkaterület választó gombok (Chips)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        simulation.workspaces.keys.forEach { wsName ->
+                            FilterChip(
+                                selected = wsName == activeWorkspace.name,
+                                onClick = { viewModel.switchWorkspace(wsName) },
+                                label = { Text(wsName, fontWeight = FontWeight.Bold) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Szabályok (Rules) Szekció: if...then...conclude that
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                 )
             ) {
                 Column(
@@ -101,99 +180,183 @@ fun MathTreeApp(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Matematikai / Logikai kifejezés:",
+                            text = "Szabályok (Rules - if...then...):",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Bold
                         )
-
-                        // Szög mértékegység gombok (Fok vs Radián)
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Button(
+                            onClick = { viewModel.evaluateRules() },
+                            shape = RoundedCornerShape(10.dp)
                         ) {
-                            FilterChip(
-                                selected = isDegreeMode,
-                                onClick = { viewModel.updateDegreeMode(true) },
-                                label = { Text("Fok (°)", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                            )
-                            FilterChip(
-                                selected = !isDegreeMode,
-                                onClick = { viewModel.updateDegreeMode(false) },
-                                label = { Text("Rad", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                            )
+                            Text("▶️ Szabályok Futtatása", fontWeight = FontWeight.Bold)
                         }
                     }
 
-                    OutlinedTextField(
-                        value = expressionText,
-                        onValueChange = { viewModel.updateExpressionText(it) },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Pl.: v1 == \"teszt\" vagy x > 5 and y <= 10") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = { buildTree() }),
-                        trailingIcon = {
-                            if (expressionText.isNotEmpty()) {
-                                TextButton(onClick = { viewModel.updateExpressionText("") }) {
-                                    Text("✕")
-                                }
-                            }
-                        }
-                    )
-
-                    // Gyors szimbólum, logikai és változó/függvény beszúró gombok
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        val symbols = listOf(
-                            "==", "!=", "<", ">", "<=", ">=", "and", "or", "not",
-                            "\"teszt\"", "+", "-", "*", "/", "^", "√", "(", ")", ",",
-                            "sin", "cos", "tan", "cot", "v1", "a", "b", "x"
-                        ) + userFunctionsList.map { it.name }
-
-                        symbols.distinct().forEach { symbol ->
-                            SuggestionChip(
-                                onClick = { viewModel.updateExpressionText("$expressionText $symbol ") },
-                                label = {
-                                    Text(
-                                        text = symbol,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp
-                                    )
-                                }
-                            )
-                        }
-                    }
-
-                    // Minta kifejezések
+                    // Címke (Label) szűrő és fókuszálás gombok
                     Text(
-                        text = "Minta kifejezések:",
+                        text = "Fókuszálás Címke (Tag) alapján:",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        val presets = listOf(
-                            "v1 == \"teszt\"",
-                            "x > 5 and y <= 10",
-                            "not (a == \"teszt\")",
-                            "sin(90) == 1",
-                            "függvény1(10 * a + 2 * függvény2(b))"
+                        FilterChip(
+                            selected = selectedLabelFilter == null || selectedLabelFilter == "Összes",
+                            onClick = {
+                                viewModel.selectLabelFilter("Összes")
+                                viewModel.evaluateRules("Összes")
+                            },
+                            label = { Text("Összes Címke", fontWeight = FontWeight.Bold) }
                         )
-                        presets.forEach { preset ->
+                        availableLabels.forEach { labelName ->
                             FilterChip(
-                                selected = expressionText == preset,
-                                onClick = { viewModel.updateExpressionText(preset) },
-                                label = { Text(preset, fontSize = 12.sp) }
+                                selected = selectedLabelFilter == labelName,
+                                onClick = {
+                                    viewModel.selectLabelFilter(labelName)
+                                    viewModel.evaluateRules(labelName)
+                                },
+                                label = { Text("🏷️ $labelName") }
                             )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(
+                            onClick = {
+                                editingRuleIndex = null
+                                ruleNameInput = "Szabály ${rulesList.size + 1}"
+                                ruleLabelInput = "Alapértelmezett"
+                                ruleCondInput = "v1 == \"teszt\""
+                                ruleTargetVarInput = "x1"
+                                ruleValueExprInput = "10"
+                                showRuleDialog = true
+                            }
+                        ) {
+                            Text("+ Új Szabály", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    if (rulesList.isEmpty()) {
+                        Text(
+                            text = "Nincsenek szabályok ezen a munkaterületen. Hozz létre újat a '+ Új Szabály' gombbal!",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        rulesList.forEachIndexed { index, rule ->
+                            val res = ruleResults[rule.id]
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surface
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Text(
+                                                text = rule.name,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 15.sp
+                                            )
+                                            SuggestionChip(
+                                                onClick = {},
+                                                label = { Text("🏷️ ${rule.label}", fontSize = 11.sp) }
+                                            )
+                                        }
+
+                                        Row {
+                                            IconButton(
+                                                onClick = {
+                                                    editingRuleIndex = index
+                                                    ruleNameInput = rule.name
+                                                    ruleLabelInput = rule.label
+                                                    ruleCondInput = rule.conditionExpression
+                                                    ruleTargetVarInput = rule.targetVariable
+                                                    ruleValueExprInput = rule.valueExpression
+                                                    showRuleDialog = true
+                                                }
+                                            ) {
+                                                Text("✏️", fontSize = 16.sp)
+                                            }
+                                            IconButton(
+                                                onClick = {
+                                                    viewModel.removeRule(index)
+                                                }
+                                            ) {
+                                                Text("🗑️", fontSize = 16.sp)
+                                            }
+                                        }
+                                    }
+
+                                    // Szabály Formula megjelenítése: if...then...conclude that
+                                    Text(
+                                        text = "if (${rule.conditionExpression})\nthen conclude that ${rule.targetVariable} = ${rule.valueExpression}",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+
+                                    // Kiértékelési állapot
+                                    res?.let { r ->
+                                        if (r.conditionMet) {
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = Color(0xFFE8F5E9)
+                                            ) {
+                                                Text(
+                                                    text = "✅ Feltétel: IGAZ -> Beállítva: ${rule.targetVariable} = ${r.assignedValue?.toDisplayString()}",
+                                                    color = Color(0xFF2E7D32),
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                )
+                                            }
+                                        } else {
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = Color(0xFFFFEBEE)
+                                            ) {
+                                                Text(
+                                                    text = if (r.errorMessage != null) "⚠️ Hiba: ${r.errorMessage}" else "❌ Feltétel: HAMIS",
+                                                    color = Color(0xFFC62828),
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // Gomb a feltétel bináris fa megtekintéséhez popup ablakban
+                                    OutlinedButton(
+                                        onClick = { viewModel.openRuleConditionTreeDialog(rule) },
+                                        modifier = Modifier.align(Alignment.End),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text("🔍 Feltétel Fájának Megtekintése", fontSize = 12.sp)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -217,7 +380,7 @@ fun MathTreeApp(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Saját Függvények & Kifejezések:",
+                            text = "Függvények (${activeWorkspace.name}):",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onTertiaryContainer
@@ -237,7 +400,7 @@ fun MathTreeApp(
 
                     if (userFunctionsList.isEmpty()) {
                         Text(
-                            text = "Nincsenek egyéni függvények. Hozz létre újat a '+ Új függvény' gombbal!",
+                            text = "Nincsenek egyéni függvények ezen a munkaterületen.",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -316,7 +479,7 @@ fun MathTreeApp(
                 }
             }
 
-            // Változó szerkesztő szekció (Számok és Szövegek)
+            // Változó szerkesztő szekció
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -334,7 +497,7 @@ fun MathTreeApp(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Változók értékei (Szám / Szöveg):",
+                            text = "Változók (${activeWorkspace.name}):",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSecondaryContainer
@@ -346,7 +509,7 @@ fun MathTreeApp(
 
                     if (variableInputs.isEmpty()) {
                         Text(
-                            text = "Nincsenek változók. Írj be azonosítókat a kifejezésbe (pl. v1, a, x), és automatikusan megjelennek!",
+                            text = "Nincsenek változók ezen a munkaterületen.",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -398,20 +561,6 @@ fun MathTreeApp(
                             }
                         }
                     }
-
-                    Button(
-                        onClick = { buildTree() },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(
-                            text = "Bináris Fa Építése és Újraszámítás",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
-                        )
-                    }
                 }
             }
 
@@ -434,77 +583,241 @@ fun MathTreeApp(
                     }
                 }
             }
+        }
+    }
 
-            // Eredmény és Fa Nézet
-            parsedTree?.let { root ->
-                val resultValue = root.getValue()
-                val formattedResult = resultValue.toDisplayString()
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+    // POPUP DIALOG: Szabály Feltétel Fájának (Hierarchikus és 2D Fa) Megtekintése
+    val dialogRule = selectedRuleForTreeDialog
+    val dialogCondTree = selectedRuleConditionTree
+    if (dialogRule != null && dialogCondTree != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.closeRuleConditionTreeDialog() },
+            title = {
+                Column {
+                    Text(text = "Szabály Feltétel Fája: ${dialogRule.name}", fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "if (${dialogRule.conditionExpression})",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary
                     )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = "Művelet Eredménye (root.getValue())",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary
+                    Text(
+                        text = "Feltétel értéke: ${dialogCondTree.getValue().toDisplayString()}",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+
+                    TabRow(selectedTabIndex = ruleDialogTab) {
+                        Tab(
+                            selected = ruleDialogTab == 0,
+                            onClick = { ruleDialogTab = 0 },
+                            text = { Text("Hierarchikus Fa", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                         )
-                        Text(
-                            text = formattedResult,
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "Gyökér művelet: ${root.description}",
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        Tab(
+                            selected = ruleDialogTab == 1,
+                            onClick = { ruleDialogTab = 1 },
+                            text = { Text("Grafikus Ábra", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                         )
                     }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(300.dp)
+                    ) {
+                        if (ruleDialogTab == 0) {
+                            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                                HierarchicalTreeView(node = dialogCondTree)
+                            }
+                        } else {
+                            GraphicalTreeView(rootNode = dialogCondTree)
+                        }
+                    }
                 }
-
-                // Nézet váltó fülek (Fa Kártyák vs 2D Grafikus Ábra)
-                TabRow(selectedTabIndex = selectedTab) {
-                    Tab(
-                        selected = selectedTab == 0,
-                        onClick = { viewModel.updateSelectedTab(0) },
-                        text = { Text("Hierarchikus Fa", fontWeight = FontWeight.Bold) }
-                    )
-                    Tab(
-                        selected = selectedTab == 1,
-                        onClick = { viewModel.updateSelectedTab(1) },
-                        text = { Text("Grafikus Ábra", fontWeight = FontWeight.Bold) }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                if (selectedTab == 0) {
-                    Text(
-                        text = "Generált bináris fa struktúra:",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    HierarchicalTreeView(node = root)
-                } else {
-                    Text(
-                        text = "2D Grafikus Fa Ábra (görgethető):",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    GraphicalTreeView(rootNode = root)
+            },
+            confirmButton = {
+                Button(onClick = { viewModel.closeRuleConditionTreeDialog() }) {
+                    Text("Bezárás")
                 }
             }
-        }
+        )
+    }
+
+    // Új / Szerkesztendő Szabály párbeszédablak
+    if (showRuleDialog) {
+        AlertDialog(
+            onDismissRequest = { showRuleDialog = false },
+            title = {
+                Text(if (editingRuleIndex == null) "Új Szabály (if...then...)" else "Szabály szerkesztése")
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = ruleNameInput,
+                        onValueChange = { ruleNameInput = it },
+                        label = { Text("Szabály neve (pl. Szabály 1)") },
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = ruleLabelInput,
+                        onValueChange = { ruleLabelInput = it },
+                        label = { Text("Címke / Tag (pl. Klíma, Fizika)") },
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = ruleCondInput,
+                        onValueChange = { ruleCondInput = it },
+                        label = { Text("IF Feltétel (pl. temp > 25 vagy v1 == \"teszt\")") },
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = ruleTargetVarInput,
+                        onValueChange = { ruleTargetVarInput = it.trim() },
+                        label = { Text("THEN Cél Változó neve (pl. x1 vagy status)") },
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = ruleValueExprInput,
+                        onValueChange = { ruleValueExprInput = it },
+                        label = { Text("CONCLUDE VALUE Érték kifejezése (pl. 10 vagy \"Hűtés\")") },
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (ruleNameInput.isNotEmpty() && ruleCondInput.isNotEmpty() && ruleTargetVarInput.isNotEmpty()) {
+                            val newRule = Rule(
+                                name = ruleNameInput,
+                                label = ruleLabelInput.ifEmpty { "Alapértelmezett" },
+                                conditionExpression = ruleCondInput,
+                                targetVariable = ruleTargetVarInput,
+                                valueExpression = ruleValueExprInput
+                            )
+                            viewModel.addOrUpdateRule(newRule, editingRuleIndex)
+                            showRuleDialog = false
+                        }
+                    }
+                ) {
+                    Text("Mentés")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRuleDialog = false }) {
+                    Text("Mégse")
+                }
+            }
+        )
+    }
+
+    // Új Munkaterület hozzáadása párbeszédablak
+    if (showAddWsDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddWsDialog = false },
+            title = { Text("Új Munkaterület (Workspace)") },
+            text = {
+                OutlinedTextField(
+                    value = newWsNameInput,
+                    onValueChange = { newWsNameInput = it.trim() },
+                    label = { Text("Munkaterület neve (pl. Fizika, Geometria)") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newWsNameInput.isNotEmpty()) {
+                            viewModel.createWorkspace(newWsNameInput)
+                            newWsNameInput = ""
+                            showAddWsDialog = false
+                        }
+                    }
+                ) {
+                    Text("Létrehozás")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddWsDialog = false }) {
+                    Text("Mégse")
+                }
+            }
+        )
+    }
+
+    // JSON Export párbeszédablak
+    if (showExportDialog) {
+        val exportedJson = remember { viewModel.exportSimulationToJson() }
+        AlertDialog(
+            onDismissRequest = { showExportDialog = false },
+            title = { Text("Szimuláció Exportálása (JSON)") },
+            text = {
+                OutlinedTextField(
+                    value = exportedJson,
+                    onValueChange = {},
+                    readOnly = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(250.dp),
+                    textStyle = LocalTextStyle.current.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp
+                    )
+                )
+            },
+            confirmButton = {
+                Button(onClick = { showExportDialog = false }) {
+                    Text("Bezárás")
+                }
+            }
+        )
+    }
+
+    // JSON Import párbeszédablak
+    if (showImportDialog) {
+        AlertDialog(
+            onDismissRequest = { showImportDialog = false },
+            title = { Text("Szimuláció Importálása (JSON)") },
+            text = {
+                OutlinedTextField(
+                    value = jsonImportInput,
+                    onValueChange = { jsonImportInput = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    placeholder = { Text("Illeszd be a JSON kódját ide...") },
+                    textStyle = LocalTextStyle.current.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp
+                    )
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (jsonImportInput.isNotEmpty()) {
+                            viewModel.importSimulationFromJson(jsonImportInput)
+                            jsonImportInput = ""
+                            showImportDialog = false
+                        }
+                    }
+                ) {
+                    Text("Importálás")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showImportDialog = false }) {
+                    Text("Mégse")
+                }
+            }
+        )
     }
 
     // Új / Módosítandó függvény párbeszédablak
@@ -519,7 +832,7 @@ fun MathTreeApp(
                     OutlinedTextField(
                         value = funcNameInput,
                         onValueChange = { funcNameInput = it.trim() },
-                        label = { Text("Függvény neve (pl. függvény1, sqr)") },
+                        label = { Text("Függvény neve (pl. f1, sqr)") },
                         singleLine = true
                     )
                     OutlinedTextField(
@@ -547,7 +860,7 @@ fun MathTreeApp(
                                 .map { it.trim() }
                                 .filter { it.isNotEmpty() }
 
-                            val newFunc = UserFunction(
+                            val newFunc = UserFunctionData(
                                 name = funcNameInput,
                                 parameters = parsedParams,
                                 expressionBody = funcBodyInput

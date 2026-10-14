@@ -40,6 +40,7 @@ sealed class Token {
 
 /**
  * Matematikai és logikai kifejezéseket kielemző és bináris kifejezésfát építő osztály.
+ * Támogatja a Munkaterületek (Workspaces) közötti változó és függvény hivatkozásokat.
  */
 class MathExpressionParser {
 
@@ -50,7 +51,8 @@ class MathExpressionParser {
         input: String,
         variables: Map<String, Value> = emptyMap(),
         userFunctions: Map<String, UserFunction> = emptyMap(),
-        isDegreeMode: Boolean = false
+        isDegreeMode: Boolean = false,
+        simulation: Simulation? = null
     ): MathNode {
         val trimmed = input.trim()
         if (trimmed.isEmpty()) {
@@ -60,7 +62,7 @@ class MathExpressionParser {
         if (tokens.isEmpty()) {
             throw IllegalArgumentException("A megadott kifejezés üres vagy érvénytelen!")
         }
-        val parserInstance = ParserInstance(tokens, variables, userFunctions, isDegreeMode)
+        val parserInstance = ParserInstance(tokens, variables, userFunctions, isDegreeMode, simulation)
         val rootNode = parserInstance.parseExpression()
         if (!parserInstance.isAtEnd()) {
             throw IllegalArgumentException("Érvénytelen kifejezés a következő szimbólumnál: ${parserInstance.peek()}")
@@ -73,7 +75,8 @@ class MathExpressionParser {
      */
     fun extractVariables(
         input: String,
-        userFunctions: Map<String, UserFunction> = emptyMap()
+        userFunctions: Map<String, UserFunction> = emptyMap(),
+        simulation: Simulation? = null
     ): List<String> {
         val trimmed = input.trim()
         if (trimmed.isEmpty()) return emptyList()
@@ -87,7 +90,11 @@ class MathExpressionParser {
         )
         return try {
             val tokens = tokenize(trimmed)
-            val funcNames = userFunctions.keys.map { it.lowercase() }.toSet()
+            val funcNames = userFunctions.keys.map { it.lowercase() }.toMutableSet()
+            simulation?.workspaces?.values?.forEach { ws ->
+                ws.functions.forEach { f -> funcNames.add(f.name.lowercase()) }
+            }
+
             tokens.filterIsInstance<Token.Variable>()
                 .map { it.name }
                 .filterNot { funcNames.contains(it.lowercase()) || builtInNames.contains(it.lowercase()) }
@@ -264,7 +271,7 @@ class MathExpressionParser {
                 c.isLetter() || c == '_' -> {
                     val start = i
                     i++
-                    while (i < len && (input[i].isLetterOrDigit() || input[i] == '_')) {
+                    while (i < len && (input[i].isLetterOrDigit() || input[i] == '_' || input[i] == '.')) {
                         i++
                     }
                     val name = input.substring(start, i)
@@ -288,7 +295,8 @@ class MathExpressionParser {
         private val tokens: List<Token>,
         private val variables: Map<String, Value>,
         private val userFunctions: Map<String, UserFunction>,
-        private val isDegreeMode: Boolean
+        private val isDegreeMode: Boolean,
+        private val simulation: Simulation?
     ) {
         private var pos = 0
 
@@ -302,10 +310,8 @@ class MathExpressionParser {
             return token
         }
 
-        // Expression: Or
         fun parseExpression(): MathNode = parseOr()
 
-        // Or: And ( 'or' And )*
         private fun parseOr(): MathNode {
             var node = parseAnd()
             while (peek() is Token.Or) {
@@ -316,7 +322,6 @@ class MathExpressionParser {
             return node
         }
 
-        // And: Equality ( 'and' Equality )*
         private fun parseAnd(): MathNode {
             var node = parseEquality()
             while (peek() is Token.And) {
@@ -327,7 +332,6 @@ class MathExpressionParser {
             return node
         }
 
-        // Equality: Relational ( ( '==' | '!=' ) Relational )*
         private fun parseEquality(): MathNode {
             var node = parseRelational()
             while (true) {
@@ -348,7 +352,6 @@ class MathExpressionParser {
             return node
         }
 
-        // Relational: Additive ( ( '<' | '>' | '<=' | '>=' ) Additive )*
         private fun parseRelational(): MathNode {
             var node = parseAdditive()
             while (true) {
@@ -379,7 +382,6 @@ class MathExpressionParser {
             return node
         }
 
-        // Additive: Term ( ( '+' | '-' ) Term )*
         private fun parseAdditive(): MathNode {
             var node = parseTerm()
             while (true) {
@@ -400,7 +402,6 @@ class MathExpressionParser {
             return node
         }
 
-        // Term: PowerAndRoot (( '*' | '/' ) PowerAndRoot)*
         private fun parseTerm(): MathNode {
             var node = parsePowerAndRoot()
             while (true) {
@@ -421,7 +422,6 @@ class MathExpressionParser {
             return node
         }
 
-        // PowerAndRoot: Unary (( '^' | 'root' ) Unary)*
         private fun parsePowerAndRoot(): MathNode {
             var node = parseUnary()
             while (true) {
@@ -442,7 +442,6 @@ class MathExpressionParser {
             return node
         }
 
-        // Unary: ('+' | '-' | 'not' | '√' | 'sqrt' | trig) Unary | Primary
         private fun parseUnary(): MathNode {
             when (val token = peek()) {
                 is Token.Plus -> {
@@ -489,7 +488,6 @@ class MathExpressionParser {
             }
         }
 
-        // Primary: Number | StringLiteral | Variable | FunctionCall | '(' Expression ')'
         private fun parsePrimary(): MathNode {
             val token = peek()
                 ?: throw IllegalArgumentException("Kifejezés korai vége. Hiányzó operandus!")
@@ -516,7 +514,7 @@ class MathExpressionParser {
                     }
 
                     if (peek() is Token.LParen) {
-                        // Ez egy függvényhívás!
+                        // Ez egy függvényhívás! (pl. f1(x) vagy Fizika.f1(x))
                         advance() // '('
                         val argNodes = mutableListOf<MathNode>()
                         if (peek() !is Token.RParen) {
@@ -535,19 +533,23 @@ class MathExpressionParser {
                         }
                         advance() // ')'
 
-                        val userFunc = userFunctions[varName]
-                            ?: userFunctions[varName.lowercase()]
-                            ?: userFunctions[varName.uppercase()]
+                        val resolvedUserFunc = resolveUserFunction(varName)
 
-                        if (userFunc != null) {
+                        if (resolvedUserFunc != null) {
                             val localCallVariables = variables.toMutableMap()
-                            userFunc.parameters.forEachIndexed { index, paramName ->
+                            resolvedUserFunc.parameters.forEachIndexed { index, paramName ->
                                 val argVal = if (index < argNodes.size) argNodes[index].getValue() else Value.Number(0.0)
                                 localCallVariables[paramName] = argVal
                             }
 
                             val bodyParser = MathExpressionParser()
-                            val bodyTree = bodyParser.parse(userFunc.expressionBody, localCallVariables, userFunctions, isDegreeMode)
+                            val bodyTree = bodyParser.parse(
+                                input = resolvedUserFunc.expressionBody,
+                                variables = localCallVariables,
+                                userFunctions = userFunctions,
+                                isDegreeMode = isDegreeMode,
+                                simulation = simulation
+                            )
 
                             FunctionCallNode(
                                 functionName = varName,
@@ -585,26 +587,9 @@ class MathExpressionParser {
                             }
                         }
                     } else {
-                        // Normál változó vagy paraméter nélküli elnevezett kifejezés
-                        val userFunc = userFunctions[varName]
-                            ?: userFunctions[varName.lowercase()]
-                            ?: userFunctions[varName.uppercase()]
-
-                        if (userFunc != null && userFunc.parameters.isEmpty()) {
-                            val bodyParser = MathExpressionParser()
-                            val bodyTree = bodyParser.parse(userFunc.expressionBody, variables, userFunctions, isDegreeMode)
-                            FunctionCallNode(
-                                functionName = varName,
-                                argumentNodes = emptyList(),
-                                functionBodyTree = bodyTree
-                            )
-                        } else {
-                            val varValue = variables[varName]
-                                ?: variables[varName.lowercase()]
-                                ?: variables[varName.uppercase()]
-                                ?: Value.Number(0.0)
-                            VariableNode(varName, varValue)
-                        }
+                        // Változó feloldása (helyi, minősített vagy más munkaterületről származó)
+                        val resolvedValue = resolveVariableValue(varName)
+                        VariableNode(varName, resolvedValue)
                     }
                 }
                 is Token.LParen -> {
@@ -620,6 +605,96 @@ class MathExpressionParser {
                     throw IllegalArgumentException("Érvénytelen szimbólum a kifejezésben: $token")
                 }
             }
+        }
+
+        private fun resolveVariableValue(varName: String): Value {
+            // 1. Minősített hivatkozás: Pl. "Fizika.g" vagy "Fizika.m"
+            if (varName.contains(".")) {
+                val parts = varName.split(".")
+                val wsName = parts[0]
+                val realName = parts[1]
+                val targetWs = simulation?.workspaces?.get(wsName)
+                if (targetWs != null) {
+                    val rawVal = targetWs.variables[realName]
+                        ?: targetWs.variables[realName.lowercase()]
+                    if (rawVal != null) {
+                        return parseValueFromRaw(rawVal)
+                    }
+                }
+            }
+
+            // 2. Helyi változó a jelenlegi munkaterületen
+            val localVal = variables[varName]
+                ?: variables[varName.lowercase()]
+                ?: variables[varName.uppercase()]
+
+            if (localVal != null) {
+                return localVal
+            }
+
+            // 3. Globális keresés a szimuláció többi munkaterületén
+            if (simulation != null) {
+                for (ws in simulation.workspaces.values) {
+                    val foundRaw = ws.variables[varName]
+                        ?: ws.variables[varName.lowercase()]
+                    if (foundRaw != null) {
+                        return parseValueFromRaw(foundRaw)
+                    }
+                }
+            }
+
+            return Value.Number(0.0)
+        }
+
+        private fun resolveUserFunction(funcName: String): UserFunction? {
+            // 1. Minősített hivatkozás: Pl. "Fizika.f1"
+            if (funcName.contains(".")) {
+                val parts = funcName.split(".")
+                val wsName = parts[0]
+                val realName = parts[1]
+                val targetWs = simulation?.workspaces?.get(wsName)
+                if (targetWs != null) {
+                    val fData = targetWs.functions.firstOrNull { it.name.equals(realName, ignoreCase = true) }
+                    if (fData != null) {
+                        return UserFunction(fData.name, fData.parameters, fData.expressionBody)
+                    }
+                }
+            }
+
+            // 2. Helyi függvény a jelenlegi kontextusban
+            val localFunc = userFunctions[funcName]
+                ?: userFunctions[funcName.lowercase()]
+                ?: userFunctions[funcName.uppercase()]
+
+            if (localFunc != null) {
+                return localFunc
+            }
+
+            // 3. Globális keresés a szimuláció többi munkaterületén
+            if (simulation != null) {
+                for (ws in simulation.workspaces.values) {
+                    val fData = ws.functions.firstOrNull { it.name.equals(funcName, ignoreCase = true) }
+                    if (fData != null) {
+                        return UserFunction(fData.name, fData.parameters, fData.expressionBody)
+                    }
+                }
+            }
+
+            return null
+        }
+
+        private fun parseValueFromRaw(raw: String): Value {
+            val trimmed = raw.trim()
+            if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
+                (trimmed.startsWith("'") && trimmed.endsWith("'"))
+            ) {
+                return Value.Text(trimmed.substring(1, trimmed.length - 1))
+            }
+            val num = trimmed.toDoubleOrNull()
+            if (num != null) return Value.Number(num)
+            if (trimmed.equals("true", ignoreCase = true) || trimmed.equals("igaz", ignoreCase = true)) return Value.Bool(true)
+            if (trimmed.equals("false", ignoreCase = true) || trimmed.equals("hamis", ignoreCase = true)) return Value.Bool(false)
+            return Value.Text(trimmed)
         }
     }
 }
