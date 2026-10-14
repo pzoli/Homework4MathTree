@@ -63,17 +63,17 @@ class MathTreeViewModel : ViewModel() {
     }
 
     fun updateVariableInput(varName: String, valueStr: String) {
-        variableInputs = variableInputs + (varName to valueStr)
+        variableInputs += (varName to valueStr)
         buildTree()
     }
 
     fun addVariable(varName: String, valueStr: String) {
-        variableInputs = variableInputs + (varName to valueStr)
+        variableInputs += (varName to valueStr)
         buildTree()
     }
 
     fun removeVariable(varName: String) {
-        variableInputs = variableInputs - varName
+        variableInputs -= varName
         buildTree()
     }
 
@@ -88,7 +88,7 @@ class MathTreeViewModel : ViewModel() {
 
     fun addOrUpdateUserFunction(function: UserFunction, editIndex: Int? = null) {
         val updated = userFunctionsList.toMutableList()
-        if (editIndex != null && editIndex in updated.indices) {
+        if ((editIndex != null) && (editIndex in updated.indices)) {
             updated[editIndex] = function
         } else {
             updated.add(function)

@@ -156,7 +156,7 @@ fun MathTreeApp(
 
                         symbols.distinct().forEach { symbol ->
                             SuggestionChip(
-                                onClick = { viewModel.updateExpressionText(expressionText + " $symbol ") },
+                                onClick = { viewModel.updateExpressionText("$expressionText $symbol ") },
                                 label = {
                                     Text(
                                         text = symbol,
@@ -605,7 +605,7 @@ fun MathTreeApp(
                         if (newVarName.isNotEmpty()) {
                             viewModel.addVariable(
                                 newVarName,
-                                if (newVarValue.isEmpty()) "0" else newVarValue
+                                newVarValue.ifEmpty { "0" }
                             )
                             newVarName = ""
                             newVarValue = ""
