@@ -6,19 +6,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import com.example.homework4mathtree.model.MathNode
+import com.example.homework4mathtree.model.Value
 import com.example.homework4mathtree.parser.MathExpressionParser
 import com.example.homework4mathtree.parser.UserFunction
 
 /**
- * ViewModel a matematikai kifejezésfa alkalmazás állapotának megőrzésére.
- * Megakadályozza az adatok elvesztését képernyőforgatáskor (Configuration Change).
+ * ViewModel a matematikai és logikai kifejezésfa alkalmazás állapotának megőrzésére.
  */
 class MathTreeViewModel : ViewModel() {
 
-    var expressionText by mutableStateOf("függvény1(10 * a + 2 * függvény2(b))")
+    var expressionText by mutableStateOf("v1 == \"teszt\"")
         private set
 
-    var variableInputs by mutableStateOf(mapOf("a" to "1", "b" to "3", "x" to "45"))
+    var variableInputs by mutableStateOf(mapOf("v1" to "teszt", "a" to "1", "b" to "3", "x" to "10"))
         private set
 
     var isDegreeMode by mutableStateOf(true) // true: Fok (DEG), false: Radián (RAD)
@@ -115,7 +115,7 @@ class MathTreeViewModel : ViewModel() {
         var changed = false
         detectedVars.forEach { varName ->
             if (!updatedMap.containsKey(varName)) {
-                updatedMap[varName] = "1"
+                updatedMap[varName] = "teszt"
                 changed = true
             }
         }
@@ -124,14 +124,34 @@ class MathTreeViewModel : ViewModel() {
         }
     }
 
+    private fun parseVariableValue(inputStr: String): Value {
+        val trimmed = inputStr.trim()
+        if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
+            (trimmed.startsWith("'") && trimmed.endsWith("'"))
+        ) {
+            return Value.Text(trimmed.substring(1, trimmed.length - 1))
+        }
+        val num = trimmed.toDoubleOrNull()
+        if (num != null) {
+            return Value.Number(num)
+        }
+        if (trimmed.equals("true", ignoreCase = true) || trimmed.equals("igaz", ignoreCase = true)) {
+            return Value.Bool(true)
+        }
+        if (trimmed.equals("false", ignoreCase = true) || trimmed.equals("hamis", ignoreCase = true)) {
+            return Value.Bool(false)
+        }
+        return Value.Text(trimmed)
+    }
+
     fun buildTree() {
         errorMessage = null
         try {
-            val doubleVariables = variableInputs.mapValues {
-                it.value.toDoubleOrNull() ?: 0.0
+            val valueVariables = variableInputs.mapValues {
+                parseVariableValue(it.value)
             }
             val userFuncMap = userFunctionsList.associateBy { it.name }
-            parsedTree = parser.parse(expressionText, doubleVariables, userFuncMap, isDegreeMode)
+            parsedTree = parser.parse(expressionText, valueVariables, userFuncMap, isDegreeMode)
         } catch (e: Exception) {
             parsedTree = null
             errorMessage = e.message ?: "Hiba történt a kifejezés feldolgozása során!"

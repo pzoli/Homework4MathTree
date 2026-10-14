@@ -21,7 +21,6 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -102,7 +101,7 @@ fun MathTreeApp(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Matematikai kifejezés megadása:",
+                            text = "Matematikai / Logikai kifejezés:",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -129,7 +128,7 @@ fun MathTreeApp(
                         value = expressionText,
                         onValueChange = { viewModel.updateExpressionText(it) },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Pl.: sin(90) + cos(0) vagy sin(x ^ 2)") },
+                        placeholder = { Text("Pl.: v1 == \"teszt\" vagy x > 5 and y <= 10") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = { buildTree() }),
@@ -142,7 +141,7 @@ fun MathTreeApp(
                         }
                     )
 
-                    // Gyors szimbólum, szögfüggvény és változó/függvény beszúró gombok
+                    // Gyors szimbólum, logikai és változó/függvény beszúró gombok
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -150,8 +149,9 @@ fun MathTreeApp(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         val symbols = listOf(
-                            "+", "-", "*", "/", "^", "√", "(", ")", ",",
-                            "sin", "cos", "tan", "cot", "π", "a", "b", "x", "y"
+                            "==", "!=", "<", ">", "<=", ">=", "and", "or", "not",
+                            "\"teszt\"", "+", "-", "*", "/", "^", "√", "(", ")", ",",
+                            "sin", "cos", "tan", "cot", "v1", "a", "b", "x"
                         ) + userFunctionsList.map { it.name }
 
                         symbols.distinct().forEach { symbol ->
@@ -182,11 +182,11 @@ fun MathTreeApp(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         val presets = listOf(
-                            "sin(90) + cos(0)",
-                            "tan(x) * cot(x)",
-                            "sin(x) ^ 2 + cos(x) ^ 2",
-                            "függvény1(10 * a + 2 * függvény2(b))",
-                            "a ^ 2 + b ^ 2"
+                            "v1 == \"teszt\"",
+                            "x > 5 and y <= 10",
+                            "not (a == \"teszt\")",
+                            "sin(90) == 1",
+                            "függvény1(10 * a + 2 * függvény2(b))"
                         )
                         presets.forEach { preset ->
                             FilterChip(
@@ -316,7 +316,7 @@ fun MathTreeApp(
                 }
             }
 
-            // Változó szerkesztő szekció
+            // Változó szerkesztő szekció (Számok és Szövegek)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -334,7 +334,7 @@ fun MathTreeApp(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Változók értékei (Variable List):",
+                            text = "Változók értékei (Szám / Szöveg):",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSecondaryContainer
@@ -346,7 +346,7 @@ fun MathTreeApp(
 
                     if (variableInputs.isEmpty()) {
                         Text(
-                            text = "Nincsenek változók. Írj be betűket a kifejezésbe (pl. a, b, x), és automatikusan megjelennek!",
+                            text = "Nincsenek változók. Írj be azonosítókat a kifejezésbe (pl. v1, a, x), és automatikusan megjelennek!",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -385,11 +385,7 @@ fun MathTreeApp(
                                     },
                                     modifier = Modifier.weight(1f),
                                     singleLine = true,
-                                    keyboardOptions = KeyboardOptions(
-                                        keyboardType = KeyboardType.Number,
-                                        imeAction = ImeAction.Done
-                                    ),
-                                    placeholder = { Text("0") }
+                                    placeholder = { Text("Érték (szám vagy szöveg)") }
                                 )
 
                                 IconButton(
@@ -442,11 +438,7 @@ fun MathTreeApp(
             // Eredmény és Fa Nézet
             parsedTree?.let { root ->
                 val resultValue = root.getValue()
-                val formattedResult = if (resultValue % 1.0 == 0.0) {
-                    resultValue.toLong().toString()
-                } else {
-                    String.format(java.util.Locale.US, "%.4f", resultValue)
-                }
+                val formattedResult = resultValue.toDisplayString()
 
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -587,15 +579,14 @@ fun MathTreeApp(
                     OutlinedTextField(
                         value = newVarName,
                         onValueChange = { newVarName = it.trim() },
-                        label = { Text("Változó neve (pl. a, b, x)") },
+                        label = { Text("Változó neve (pl. v1, a, x)") },
                         singleLine = true
                     )
                     OutlinedTextField(
                         value = newVarValue,
-                        onValueChange = { newVarValue = it.trim() },
-                        label = { Text("Kezdő értéke (pl. 5 vagy 2.5)") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        onValueChange = { newVarValue = it },
+                        label = { Text("Kezdő értéke (szám vagy \"szöveg\")") },
+                        singleLine = true
                     )
                 }
             },
@@ -605,7 +596,7 @@ fun MathTreeApp(
                         if (newVarName.isNotEmpty()) {
                             viewModel.addVariable(
                                 newVarName,
-                                newVarValue.ifEmpty { "0" }
+                                newVarValue.ifEmpty { "teszt" }
                             )
                             newVarName = ""
                             newVarValue = ""

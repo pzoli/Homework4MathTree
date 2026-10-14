@@ -16,6 +16,7 @@ data class UserFunction(
  */
 sealed class Token {
     data class Number(val value: Double) : Token()
+    data class StringLiteral(val value: String) : Token()
     data class Variable(val name: String) : Token()
     object Plus : Token()
     object Minus : Token()
@@ -26,27 +27,34 @@ sealed class Token {
     object LParen : Token()
     object RParen : Token()
     object Comma : Token()
+    object Equal : Token()          // ==
+    object NotEqual : Token()       // !=
+    object LessThan : Token()       // <
+    object GreaterThan : Token()    // >
+    object LessOrEqual : Token()    // <=
+    object GreaterOrEqual : Token() // >=
+    object And : Token()            // and / &&
+    object Or : Token()             // or / ||
+    object Not : Token()            // not / !
 }
 
 /**
- * Matematikai kifejezéseket kielemző és bináris kifejezésfát építő osztály.
+ * Matematikai és logikai kifejezéseket kielemző és bináris kifejezésfát építő osztály.
  */
 class MathExpressionParser {
 
     /**
-     * Szöveges matematikai kifejezést alakít bináris MathNode fa struktúrává
-     * a megadott változó behelyettesítési értékekkel, felhasználói függvényekkel
-     * és szögmértékegységgel (isDegreeMode = true esetén fokokban számol).
+     * Szöveges kifejezést alakít bináris MathNode fa struktúrává.
      */
     fun parse(
         input: String,
-        variables: Map<String, Double> = emptyMap(),
+        variables: Map<String, Value> = emptyMap(),
         userFunctions: Map<String, UserFunction> = emptyMap(),
         isDegreeMode: Boolean = false
     ): MathNode {
         val trimmed = input.trim()
         if (trimmed.isEmpty()) {
-            throw IllegalArgumentException("Kérjük, adjon meg egy matematikai kifejezést!")
+            throw IllegalArgumentException("Kérjük, adjon meg egy kifejezést!")
         }
         val tokens = tokenize(trimmed)
         if (tokens.isEmpty()) {
@@ -62,7 +70,6 @@ class MathExpressionParser {
 
     /**
      * Kinyeri a kifejezésben található összes szabad változó nevét egyedi listaként.
-     * Kiszűri a beépített konstansokat, szögfüggvényeket és felhasználói függvényneveket.
      */
     fun extractVariables(
         input: String,
@@ -74,7 +81,9 @@ class MathExpressionParser {
             "sqrt", "root", "gyok", "gyök",
             "sin", "szinusz", "cos", "koszinusz",
             "tan", "tg", "tangens", "cot", "ctg", "kotangens",
-            "pi", "π", "e"
+            "pi", "π", "e",
+            "and", "or", "not",
+            "true", "igaz", "false", "hamis"
         )
         return try {
             val tokens = tokenize(trimmed)
@@ -99,6 +108,70 @@ class MathExpressionParser {
                 c.isWhitespace() -> {
                     i++
                 }
+                c == '"' || c == '\'' -> {
+                    val quote = c
+                    i++
+                    val start = i
+                    while (i < len && input[i] != quote) {
+                        i++
+                    }
+                    val strVal = input.substring(start, i)
+                    if (i < len && input[i] == quote) {
+                        i++
+                    }
+                    tokens.add(Token.StringLiteral(strVal))
+                }
+                c == '=' -> {
+                    if (i + 1 < len && input[i + 1] == '=') {
+                        i += 2
+                    } else {
+                        i++
+                    }
+                    tokens.add(Token.Equal)
+                }
+                c == '!' -> {
+                    if (i + 1 < len && input[i + 1] == '=') {
+                        i += 2
+                        tokens.add(Token.NotEqual)
+                    } else {
+                        i++
+                        tokens.add(Token.Not)
+                    }
+                }
+                c == '<' -> {
+                    if (i + 1 < len && input[i + 1] == '=') {
+                        i += 2
+                        tokens.add(Token.LessOrEqual)
+                    } else {
+                        i++
+                        tokens.add(Token.LessThan)
+                    }
+                }
+                c == '>' -> {
+                    if (i + 1 < len && input[i + 1] == '=') {
+                        i += 2
+                        tokens.add(Token.GreaterOrEqual)
+                    } else {
+                        i++
+                        tokens.add(Token.GreaterThan)
+                    }
+                }
+                c == '&' -> {
+                    if (i + 1 < len && input[i + 1] == '&') {
+                        i += 2
+                    } else {
+                        i++
+                    }
+                    tokens.add(Token.And)
+                }
+                c == '|' -> {
+                    if (i + 1 < len && input[i + 1] == '|') {
+                        i += 2
+                    } else {
+                        i++
+                    }
+                    tokens.add(Token.Or)
+                }
                 c == '+' -> {
                     tokens.add(Token.Plus)
                     i++
@@ -108,6 +181,7 @@ class MathExpressionParser {
                     val isUnary = lastToken == null || (
                         lastToken !is Token.Number &&
                         lastToken !is Token.Variable &&
+                        lastToken !is Token.StringLiteral &&
                         lastToken !is Token.RParen
                     )
                     if (isUnary && i + 1 < len && (input[i + 1].isDigit() || input[i + 1] == '.')) {
@@ -196,6 +270,9 @@ class MathExpressionParser {
                     val name = input.substring(start, i)
                     when (name.lowercase()) {
                         "sqrt", "root", "gyok", "gyök" -> tokens.add(Token.Root)
+                        "and" -> tokens.add(Token.And)
+                        "or" -> tokens.add(Token.Or)
+                        "not" -> tokens.add(Token.Not)
                         else -> tokens.add(Token.Variable(name))
                     }
                 }
@@ -209,7 +286,7 @@ class MathExpressionParser {
 
     private class ParserInstance(
         private val tokens: List<Token>,
-        private val variables: Map<String, Double>,
+        private val variables: Map<String, Value>,
         private val userFunctions: Map<String, UserFunction>,
         private val isDegreeMode: Boolean
     ) {
@@ -225,8 +302,85 @@ class MathExpressionParser {
             return token
         }
 
-        // Expression: Term (( '+' | '-' ) Term)*
-        fun parseExpression(): MathNode {
+        // Expression: Or
+        fun parseExpression(): MathNode = parseOr()
+
+        // Or: And ( 'or' And )*
+        private fun parseOr(): MathNode {
+            var node = parseAnd()
+            while (peek() is Token.Or) {
+                advance()
+                val right = parseAnd()
+                node = OrNode(node, right)
+            }
+            return node
+        }
+
+        // And: Equality ( 'and' Equality )*
+        private fun parseAnd(): MathNode {
+            var node = parseEquality()
+            while (peek() is Token.And) {
+                advance()
+                val right = parseEquality()
+                node = AndNode(node, right)
+            }
+            return node
+        }
+
+        // Equality: Relational ( ( '==' | '!=' ) Relational )*
+        private fun parseEquality(): MathNode {
+            var node = parseRelational()
+            while (true) {
+                when (peek()) {
+                    is Token.Equal -> {
+                        advance()
+                        val right = parseRelational()
+                        node = EqualNode(node, right)
+                    }
+                    is Token.NotEqual -> {
+                        advance()
+                        val right = parseRelational()
+                        node = NotEqualNode(node, right)
+                    }
+                    else -> break
+                }
+            }
+            return node
+        }
+
+        // Relational: Additive ( ( '<' | '>' | '<=' | '>=' ) Additive )*
+        private fun parseRelational(): MathNode {
+            var node = parseAdditive()
+            while (true) {
+                when (peek()) {
+                    is Token.LessThan -> {
+                        advance()
+                        val right = parseAdditive()
+                        node = LessThanNode(node, right)
+                    }
+                    is Token.GreaterThan -> {
+                        advance()
+                        val right = parseAdditive()
+                        node = GreaterThanNode(node, right)
+                    }
+                    is Token.LessOrEqual -> {
+                        advance()
+                        val right = parseAdditive()
+                        node = LessOrEqualNode(node, right)
+                    }
+                    is Token.GreaterOrEqual -> {
+                        advance()
+                        val right = parseAdditive()
+                        node = GreaterOrEqualNode(node, right)
+                    }
+                    else -> break
+                }
+            }
+            return node
+        }
+
+        // Additive: Term ( ( '+' | '-' ) Term )*
+        private fun parseAdditive(): MathNode {
             var node = parseTerm()
             while (true) {
                 when (peek()) {
@@ -288,7 +442,7 @@ class MathExpressionParser {
             return node
         }
 
-        // Unary: ('+' | '-' | '√' | 'sqrt' | trig) Unary | Primary
+        // Unary: ('+' | '-' | 'not' | '√' | 'sqrt' | trig) Unary | Primary
         private fun parseUnary(): MathNode {
             when (val token = peek()) {
                 is Token.Plus -> {
@@ -304,10 +458,14 @@ class MathExpressionParser {
                         SubtractionNode(NumberNode(0.0), operand)
                     }
                 }
+                is Token.Not -> {
+                    advance()
+                    val operand = parseUnary()
+                    return NotNode(operand)
+                }
                 is Token.Root -> {
                     advance()
                     val operand = parseUnary()
-                    // Unary root defaults degree to 2.0 (Square root)
                     return RootNode(NumberNode(2.0), operand)
                 }
                 is Token.Variable -> {
@@ -331,7 +489,7 @@ class MathExpressionParser {
             }
         }
 
-        // Primary: Number | Variable | FunctionCall | '(' Expression ')'
+        // Primary: Number | StringLiteral | Variable | FunctionCall | '(' Expression ')'
         private fun parsePrimary(): MathNode {
             val token = peek()
                 ?: throw IllegalArgumentException("Kifejezés korai vége. Hiányzó operandus!")
@@ -341,18 +499,24 @@ class MathExpressionParser {
                     advance()
                     NumberNode(token.value)
                 }
+                is Token.StringLiteral -> {
+                    advance()
+                    StringNode(token.value)
+                }
                 is Token.Variable -> {
                     val varToken = advance() as Token.Variable
                     val varName = varToken.name
 
-                    // Beépített konstansok (pi, e)
+                    // Beépített konstansok (pi, e, true, false)
                     when (varName.lowercase()) {
+                        "true", "igaz" -> return BooleanNode(true)
+                        "false", "hamis" -> return BooleanNode(false)
                         "pi", "π" -> return NumberNode(Math.PI)
                         "e" -> return NumberNode(Math.E)
                     }
 
                     if (peek() is Token.LParen) {
-                        // Ez egy függvényhívás! (pl. függvény1(arg1, arg2) vagy sin(x))
+                        // Ez egy függvényhívás!
                         advance() // '('
                         val argNodes = mutableListOf<MathNode>()
                         if (peek() !is Token.RParen) {
@@ -378,7 +542,7 @@ class MathExpressionParser {
                         if (userFunc != null) {
                             val localCallVariables = variables.toMutableMap()
                             userFunc.parameters.forEachIndexed { index, paramName ->
-                                val argVal = if (index < argNodes.size) argNodes[index].getValue() else 0.0
+                                val argVal = if (index < argNodes.size) argNodes[index].getValue() else Value.Number(0.0)
                                 localCallVariables[paramName] = argVal
                             }
 
@@ -438,7 +602,7 @@ class MathExpressionParser {
                             val varValue = variables[varName]
                                 ?: variables[varName.lowercase()]
                                 ?: variables[varName.uppercase()]
-                                ?: 0.0
+                                ?: Value.Number(0.0)
                             VariableNode(varName, varValue)
                         }
                     }

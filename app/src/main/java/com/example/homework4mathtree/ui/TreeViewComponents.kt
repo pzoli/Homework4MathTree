@@ -24,7 +24,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.homework4mathtree.model.*
-import java.util.Locale
 
 /**
  * Fa nézet komponens, amely rekurzívan jeleníti meg a MathNode struktúrát kártyák formájában.
@@ -301,24 +300,23 @@ private fun getTreeDepth(node: MathNode?): Int {
 
 fun getNodeColor(node: MathNode): Color {
     return when (node) {
-        is AdditionNode -> Color(0xFF2E7D32)       // Zöld
-        is SubtractionNode -> Color(0xFFC62828)    // Piros
-        is MultiplicationNode -> Color(0xFF1565C0) // Kék
-        is DivisionNode -> Color(0xFFE65100)       // Narancs
-        is ExponentiationNode -> Color(0xFF6A1B9A) // Lila
-        is RootNode -> Color(0xFF00838F)           // Cián
-        is NumberNode -> Color(0xFF424242)         // Sötétszürke
-        is VariableNode -> Color(0xFF00796B)       // Ciánkék / Teal
-        is FunctionCallNode -> Color(0xFF4A148C)   // Mélylila
-        is TrigonometricNode -> Color(0xFFC2185B)  // Rózsaszín / Rose
+        is AdditionNode -> Color(0xFF2E7D32)            // Zöld
+        is SubtractionNode -> Color(0xFFC62828)         // Piros
+        is MultiplicationNode -> Color(0xFF1565C0)      // Kék
+        is DivisionNode -> Color(0xFFE65100)            // Narancs
+        is ExponentiationNode -> Color(0xFF6A1B9A)      // Lila
+        is RootNode -> Color(0xFF00838F)                // Cián
+        is EqualNode, is NotEqualNode,
+        is LessThanNode, is GreaterThanNode,
+        is LessOrEqualNode, is GreaterOrEqualNode -> Color(0xFFF57C00) // Amber / Narancssárga
+        is AndNode, is OrNode, is NotNode, is BooleanNode -> Color(0xFF3F51B5) // Indigo
+        is StringNode -> Color(0xFF795548)              // Barna
+        is NumberNode -> Color(0xFF424242)              // Sötétszürke
+        is VariableNode -> Color(0xFF00796B)            // Ciánkék / Teal
+        is FunctionCallNode -> Color(0xFF4A148C)        // Mélylila
+        is TrigonometricNode -> Color(0xFFC2185B)       // Rózsaszín / Rose
         else -> Color(0xFF424242)
     }
 }
 
-fun formatValue(value: Double): String {
-    return if (value % 1.0 == 0.0) {
-        value.toLong().toString()
-    } else {
-        String.format(Locale.US, "%.4f", value)
-    }
-}
+fun formatValue(value: Value): String = value.toDisplayString()
