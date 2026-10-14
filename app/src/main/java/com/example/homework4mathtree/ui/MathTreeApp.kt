@@ -102,6 +102,7 @@ fun MathTreeApp(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .imePadding()
                 .verticalScroll(scrollState)
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -658,7 +659,10 @@ fun MathTreeApp(
                 Text(if (editingRuleIndex == null) "Új Szabály (Rule Editor)" else "Szabály szerkesztése")
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     OutlinedTextField(
                         value = ruleNameInput,
                         onValueChange = { ruleNameInput = it },
@@ -856,7 +860,10 @@ fun MathTreeApp(
                 Text(if (editingFuncIndex == null) "Új függvény / kifejezés" else "Függvény szerkesztése")
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     OutlinedTextField(
                         value = funcNameInput,
                         onValueChange = { funcNameInput = it.trim() },
