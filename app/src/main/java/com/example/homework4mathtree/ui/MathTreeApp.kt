@@ -38,6 +38,7 @@ fun MathTreeApp(
     val rulesList = viewModel.rulesList
     val timersList = viewModel.timersList
     val ruleResults = viewModel.ruleResults
+    val availableLabels = rulesList.map { it.label }.distinct()
 
     val isQueueProcessing = viewModel.isQueueProcessing
     val processQueueSize = viewModel.processQueueSize
@@ -938,6 +939,95 @@ fun MathTreeApp(
                         maxLines = 5,
                         textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 13.sp)
                     )
+
+                    // Prediktív Szövegbevitel (Predictive Autocomplete Suggestions)
+                    val currentWorkspaceVars = variableInputs.keys.toList()
+                    val currentWorkspaceFuncs = userFunctionsList.map { it.name }
+                    val currentWorkspaceTimers = timersList.map { it.name }
+
+                    val allKeywordsAndTemplates = remember {
+                        listOf(
+                            "if ",
+                            "then conclude that ",
+                            "then focus on ",
+                            "then start timer ",
+                            "then stop timer ",
+                            "unconditionally conclude that ",
+                            "unconditionally start timer ",
+                            "unconditionally stop timer ",
+                            "and ",
+                            "or ",
+                            "not "
+                        )
+                    }
+
+                    val lastWord = ruleTextInput.split(" ", "\n", "(").lastOrNull()?.trim() ?: ""
+
+                    val predictiveSuggestions: List<String> = remember(ruleTextInput, currentWorkspaceVars, currentWorkspaceFuncs, currentWorkspaceTimers, availableLabels) {
+                        if (lastWord.isEmpty()) {
+                            emptyList()
+                        } else {
+                            val candidates = (
+                                allKeywordsAndTemplates +
+                                currentWorkspaceVars +
+                                currentWorkspaceFuncs +
+                                currentWorkspaceTimers.map { "\"$it\"" } +
+                                availableLabels
+                            ).distinct()
+
+                            candidates.filter { item: String ->
+                                item.contains(lastWord, ignoreCase = true) && !item.equals(lastWord, ignoreCase = true)
+                            }.take(8)
+                        }
+                    }
+
+                    if (predictiveSuggestions.isNotEmpty()) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "💡 Prediktív szövegbeviteli javaslatok:",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                predictiveSuggestions.forEach { suggestion: String ->
+                                    SuggestionChip(
+                                        onClick = {
+                                            val lastSpaceIdx = maxOf(
+                                                ruleTextInput.lastIndexOf(' '),
+                                                ruleTextInput.lastIndexOf('\n'),
+                                                ruleTextInput.lastIndexOf('(')
+                                            )
+                                            ruleTextInput = if (lastSpaceIdx == -1) {
+                                                suggestion
+                                            } else {
+                                                ruleTextInput.substring(0, lastSpaceIdx + 1) + suggestion
+                                            }
+                                            ruleDialogError = null
+                                        },
+                                        label = {
+                                            Text(
+                                                text = "✨ $suggestion",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        },
+                                        colors = SuggestionChipDefaults.suggestionChipColors(
+                                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
 
                     ruleDialogError?.let { err ->
                         Text(text = "⚠️ $err", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
