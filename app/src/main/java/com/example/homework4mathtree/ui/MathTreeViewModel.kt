@@ -1,10 +1,11 @@
 package com.example.homework4mathtree.ui
 
+import android.app.Application
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.homework4mathtree.model.MathNode
 import com.example.homework4mathtree.model.Rule
@@ -21,6 +22,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+
+private const val AUTOSAVE_FILE_NAME = "simulation_autosave.json"
 
 data class RuleResult(
     val conditionMet: Boolean,
@@ -31,8 +35,9 @@ data class RuleResult(
 /**
  * ViewModel a Munkaterületeket (Workspaces) tároló Szimuláció (Simulation),
  * a Szabályok (Rules), Időzítők (Timers) és az aszinkron Process Queue kezelésére.
+ * Támogatja az automatikus fájlba mentést és visszaállítást alkalmazás indításakor.
  */
-class MathTreeViewModel : ViewModel() {
+class MathTreeViewModel(application: Application) : AndroidViewModel(application) {
 
     var simulation by mutableStateOf(Simulation())
         private set
@@ -62,7 +67,6 @@ class MathTreeViewModel : ViewModel() {
         private set
 
     var errorMessage by mutableStateOf<String?>(null)
-        private set
 
     // Aktív időzítők Coroutine Job-jai (timerId -> Job)
     private val activeTimerJobs = mutableMapOf<String, Job>()
@@ -85,9 +89,41 @@ class MathTreeViewModel : ViewModel() {
         get() = activeWorkspace.timers
 
     init {
+        loadAutoSaveSimulation()
+        syncTimers()
+    }
+
+    /**
+     * Elmenti az aktuális szimuláció JSON állapotát az alkalmazás privát tárhelyére (automatikus mentés).
+     */
+    private fun autoSaveSimulation() {
+        try {
+            val context = getApplication<Application>().applicationContext
+            val file = File(context.filesDir, AUTOSAVE_FILE_NAME)
+            file.writeText(simulation.toJsonString())
+        } catch (_: Exception) { }
+    }
+
+    /**
+     * Betölti az automatikusan elmentett szimuláció JSON-t az alkalmazás indításakor.
+     */
+    private fun loadAutoSaveSimulation() {
+        try {
+            val context = getApplication<Application>().applicationContext
+            val file = File(context.filesDir, AUTOSAVE_FILE_NAME)
+            if (file.exists()) {
+                val jsonStr = file.readText()
+                if (jsonStr.isNotEmpty()) {
+                    val importedSim = Simulation.fromJsonString(jsonStr)
+                    simulation = importedSim
+                    evaluateRules()
+                    return
+                }
+            }
+        } catch (_: Exception) { }
+
         autoDetectVariables()
         evaluateRules()
-        syncTimers()
     }
 
     /**
@@ -109,6 +145,7 @@ class MathTreeViewModel : ViewModel() {
             autoDetectVariables()
             evaluateRules()
             syncTimers()
+            autoSaveSimulation()
         }
     }
 
@@ -131,6 +168,7 @@ class MathTreeViewModel : ViewModel() {
             autoDetectVariables()
             evaluateRules()
             syncTimers()
+            autoSaveSimulation()
         }
     }
 
@@ -146,6 +184,7 @@ class MathTreeViewModel : ViewModel() {
             autoDetectVariables()
             evaluateRules()
             syncTimers()
+            autoSaveSimulation()
         }
     }
 
@@ -284,6 +323,8 @@ class MathTreeViewModel : ViewModel() {
             simulation = importedSim
             evaluateRules()
             syncTimers()
+            autoSaveSimulation()
+            errorMessage = null
         } catch (e: Exception) {
             errorMessage = "Érvénytelen JSON formátum: ${e.message}"
         }
@@ -455,6 +496,7 @@ class MathTreeViewModel : ViewModel() {
         simulation = simulation.copy(workspaces = updatedWorkspaces)
         autoDetectVariables()
         evaluateRules()
+        autoSaveSimulation()
     }
 
     private fun autoDetectVariables() {

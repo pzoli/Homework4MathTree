@@ -1,5 +1,8 @@
 package com.example.homework4mathtree.ui
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -16,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -31,6 +35,8 @@ import com.example.homework4mathtree.model.UserFunctionData
 fun MathTreeApp(
     viewModel: MathTreeViewModel = viewModel()
 ) {
+    val context = LocalContext.current
+
     val simulation = viewModel.simulation
     val activeWorkspace = viewModel.activeWorkspace
     val variableInputs = viewModel.variableInputs
@@ -47,14 +53,42 @@ fun MathTreeApp(
     val selectedRuleConditionTree = viewModel.selectedRuleConditionTree
     val errorMessage = viewModel.errorMessage
 
+    // Rendszer Fájl Választó: Mentés Fájlba (Export)
+    val exportFileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? ->
+        uri?.let {
+            try {
+                context.contentResolver.openOutputStream(it)?.use { stream ->
+                    stream.write(viewModel.exportSimulationToJson().toByteArray())
+                }
+            } catch (e: Exception) {
+                viewModel.errorMessage = "Hiba a fájl mentése során: ${e.message}"
+            }
+        }
+    }
+
+    // Rendszer Fájl Választó: Megnyitás Fájlból (Import)
+    val importFileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            try {
+                val jsonText = context.contentResolver.openInputStream(it)?.use { stream ->
+                    stream.bufferedReader().readText()
+                }
+                if (!jsonText.isNullOrEmpty()) {
+                    viewModel.importSimulationFromJson(jsonText)
+                }
+            } catch (e: Exception) {
+                viewModel.errorMessage = "Hiba a fájl megnyitása során: ${e.message}"
+            }
+        }
+    }
+
     // Munkaterület hozzáadása dialog
     var showAddWsDialog by rememberSaveable { mutableStateOf(false) }
     var newWsNameInput by rememberSaveable { mutableStateOf("") }
-
-    // JSON Export / Import dialogok
-    var showExportDialog by rememberSaveable { mutableStateOf(false) }
-    var showImportDialog by rememberSaveable { mutableStateOf(false) }
-    var jsonImportInput by rememberSaveable { mutableStateOf("") }
 
     // Változó hozzáadása dialog állapotok
     var showAddVarDialog by rememberSaveable { mutableStateOf(false) }
@@ -98,11 +132,11 @@ fun MathTreeApp(
                     )
                 },
                 actions = {
-                    TextButton(onClick = { showExportDialog = true }) {
-                        Text("📤 JSON", fontWeight = FontWeight.Bold)
+                    TextButton(onClick = { exportFileLauncher.launch("mathtree_simulation.json") }) {
+                        Text("💾 Mentés Fájlba", fontWeight = FontWeight.Bold)
                     }
-                    TextButton(onClick = { showImportDialog = true }) {
-                        Text("📥 JSON", fontWeight = FontWeight.Bold)
+                    TextButton(onClick = { importFileLauncher.launch(arrayOf("application/json", "*/*")) }) {
+                        Text("📂 Megnyitás", fontWeight = FontWeight.Bold)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -1095,74 +1129,6 @@ fun MathTreeApp(
             },
             dismissButton = {
                 TextButton(onClick = { showAddWsDialog = false }) {
-                    Text("Mégse")
-                }
-            }
-        )
-    }
-
-    // JSON Export párbeszédablak
-    if (showExportDialog) {
-        val exportedJson = remember { viewModel.exportSimulationToJson() }
-        AlertDialog(
-            onDismissRequest = { showExportDialog = false },
-            title = { Text("Szimuláció Exportálása (JSON)") },
-            text = {
-                OutlinedTextField(
-                    value = exportedJson,
-                    onValueChange = {},
-                    readOnly = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(250.dp),
-                    textStyle = LocalTextStyle.current.copy(
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp
-                    )
-                )
-            },
-            confirmButton = {
-                Button(onClick = { showExportDialog = false }) {
-                    Text("Bezárás")
-                }
-            }
-        )
-    }
-
-    // JSON Import párbeszédablak
-    if (showImportDialog) {
-        AlertDialog(
-            onDismissRequest = { showImportDialog = false },
-            title = { Text("Szimuláció Importálása (JSON)") },
-            text = {
-                OutlinedTextField(
-                    value = jsonImportInput,
-                    onValueChange = { jsonImportInput = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(200.dp),
-                    placeholder = { Text("Illeszd be a JSON kódját ide...") },
-                    textStyle = LocalTextStyle.current.copy(
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp
-                    )
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (jsonImportInput.isNotEmpty()) {
-                            viewModel.importSimulationFromJson(jsonImportInput)
-                            jsonImportInput = ""
-                            showImportDialog = false
-                        }
-                    }
-                ) {
-                    Text("Importálás")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showImportDialog = false }) {
                     Text("Mégse")
                 }
             }
