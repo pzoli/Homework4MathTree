@@ -4,10 +4,45 @@ import com.example.homework4mathtree.parser.MathExpressionParser
 import java.util.UUID
 
 /**
+ * Megnevezett Időzítő (Timer) osztály:
+ * Meghatározott időközönként (intervalMillis) beteszi a megadott címkével (targetLabel) ellátott szabályokat a Process Queue-ba.
+ */
+data class Timer(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String,                            // Időzítő neve (pl. "Klíma Időzítő")
+    val targetLabel: String,                     // Cél szabály címke (pl. "Klíma")
+    val intervalMillis: Long = 2000L,            // Időköz milliszekundumban (pl. 2000 ms = 2 mp)
+    val isRunning: Boolean = false               // Aktív-e az időzítő
+) {
+    fun toJsonString(): String {
+        return "{" +
+            "\"id\":\"${escapeJson(id)}\"," +
+            "\"name\":\"${escapeJson(name)}\"," +
+            "\"targetLabel\":\"${escapeJson(targetLabel)}\"," +
+            "\"intervalMillis\":$intervalMillis," +
+            "\"isRunning\":$isRunning" +
+            "}"
+    }
+
+    companion object {
+        fun fromMap(map: Map<String, Any?>): Timer {
+            return Timer(
+                id = map["id"]?.toString() ?: UUID.randomUUID().toString(),
+                name = map["name"]?.toString() ?: "Időzítő",
+                targetLabel = map["targetLabel"]?.toString() ?: "Klíma",
+                intervalMillis = (map["intervalMillis"] as? Number)?.toLong() ?: 2000L,
+                isRunning = map["isRunning"] as? Boolean ?: false
+            )
+        }
+    }
+}
+
+/**
  * Szabály (Rule) adatmodell:
- * 1. Feltételes: "if <feltétel> then conclude that <változó> = <érték>"
+ * 1. Értékadó: "if <feltétel> then conclude that <változó> = <érték>"
  * 2. Fókuszáló: "if <feltétel> then focus on <címke>"
- * 3. Feltétel nélküli: "unconditionally conclude that <változó> = <érték>"
+ * 3. Időzítő vezérlő: "if <feltétel> then start/stop timer <időzítő_név>"
+ * 4. Feltétel nélküli: "unconditionally ..."
  */
 data class Rule(
     val id: String = UUID.randomUUID().toString(),
@@ -17,18 +52,23 @@ data class Rule(
     val targetVariable: String = "",             // Cél változó neve (pl. "x1" vagy "status")
     val valueExpression: String = "",            // Beállítandó érték kifejezése (pl. "x1 + 2")
     val focusLabel: String? = null,              // Ha "focus on <címke>" típusú szabály
+    val timerAction: String? = null,             // "start" vagy "stop" ha időzítőt indít/állít le
+    val timerName: String? = null,               // Az elindítandó vagy leállítandó időzítő neve
     val isUnconditional: Boolean = false,        // true esetén feltétel nélküli szabály
     val mayCauseChaining: Boolean = true,        // Szabályozza, hogy az értékadás indítson-e újabb szabály kiértékelést
     val referencedVariables: List<String> = emptyList(), // A feltételben (condition) hivatkozott változók
     val isActive: Boolean = true
 ) {
     val isFocusRule: Boolean get() = focusLabel != null
+    val isTimerActionRule: Boolean get() = !timerAction.isNullOrEmpty() && !timerName.isNullOrEmpty()
 
     /**
      * Visszaadja a szabály teljes szöveges formátumát.
      */
     fun toRuleText(): String {
         return when {
+            isTimerActionRule && isUnconditional -> "unconditionally $timerAction timer $timerName"
+            isTimerActionRule -> "if $conditionExpression then $timerAction timer $timerName"
             isUnconditional -> "unconditionally conclude that $targetVariable = $valueExpression"
             isFocusRule -> "if $conditionExpression then focus on $focusLabel"
             else -> "if $conditionExpression then conclude that $targetVariable = $valueExpression"
@@ -37,7 +77,10 @@ data class Rule(
 
     fun toJsonString(): String {
         val focusStr = if (focusLabel != null) ",\"focusLabel\":\"${escapeJson(focusLabel)}\"" else ""
+        val timerActStr = if (timerAction != null) ",\"timerAction\":\"${escapeJson(timerAction)}\"" else ""
+        val timerNameStr = if (timerName != null) ",\"timerName\":\"${escapeJson(timerName)}\"" else ""
         val refVarsStr = referencedVariables.joinToString(",") { "\"${escapeJson(it)}\"" }
+
         return "{" +
             "\"id\":\"${escapeJson(id)}\"," +
             "\"name\":\"${escapeJson(name)}\"," +
@@ -50,6 +93,8 @@ data class Rule(
             "\"referencedVariables\":[$refVarsStr]," +
             "\"isActive\":$isActive" +
             focusStr +
+            timerActStr +
+            timerNameStr +
             "}"
     }
 
@@ -68,6 +113,8 @@ data class Rule(
                 targetVariable = map["targetVariable"]?.toString() ?: "",
                 valueExpression = map["valueExpression"]?.toString() ?: "",
                 focusLabel = map["focusLabel"]?.toString(),
+                timerAction = map["timerAction"]?.toString(),
+                timerName = map["timerName"]?.toString(),
                 isUnconditional = map["isUnconditional"] as? Boolean ?: false,
                 mayCauseChaining = map["mayCauseChaining"] as? Boolean ?: true,
                 referencedVariables = refVars,
@@ -93,10 +140,39 @@ object RuleParser {
         val lower = trimmed.lowercase()
         val parser = MathExpressionParser()
 
-        // 1. Feltétel nélküli szabály: "unconditionally conclude that x1 = 10 + y"
+        // 1. Feltétel nélküli szabály: "unconditionally ..."
         if (lower.startsWith("unconditionally")) {
             var rest = trimmed.substring(15).trim()
             val restLower = rest.lowercase()
+
+            // 1a. "unconditionally start timer <név>" / "unconditionally stop timer <név>"
+            if (restLower.startsWith("start timer") || restLower.startsWith("stop timer") ||
+                restLower.startsWith("start") || restLower.startsWith("stop")
+            ) {
+                val action = if (restLower.contains("start")) "start" else "stop"
+                val timerIndex = restLower.indexOf("timer")
+                val tName = if (timerIndex != -1) {
+                    rest.substring(timerIndex + 5).trim().removeSurrounding("\"").removeSurrounding("'")
+                } else {
+                    rest.substring(action.length).trim().removeSurrounding("\"").removeSurrounding("'")
+                }
+                if (tName.isEmpty()) {
+                    throw IllegalArgumentException("Meg kell adni az időzítő nevét! Pl.: unconditionally start timer Klíma Időzítő")
+                }
+                return Rule(
+                    id = id,
+                    name = name,
+                    label = defaultLabel,
+                    conditionExpression = "true",
+                    timerAction = action,
+                    timerName = tName,
+                    isUnconditional = true,
+                    mayCauseChaining = mayCauseChaining,
+                    referencedVariables = emptyList()
+                )
+            }
+
+            // 1b. "unconditionally conclude that x1 = 10 + y"
             if (restLower.startsWith("conclude that")) {
                 rest = rest.substring(13).trim()
             } else if (restLower.startsWith("conclude")) {
@@ -135,7 +211,7 @@ object RuleParser {
         // 2. Feltételes szabály "if...then..."
         val ifIndex = lower.indexOf("if")
         if (ifIndex == -1) {
-            throw IllegalArgumentException("A szabálynak 'if...then...', 'if...focus on' vagy 'unconditionally conclude that' formátumúnak kell lennie!")
+            throw IllegalArgumentException("A szabálynak 'if...then...', 'if...focus on', 'if...start/stop timer' vagy 'unconditionally...' formátumúnak kell lennie!")
         }
 
         val thenIndex = lower.indexOf("then", ifIndex + 2)
@@ -153,7 +229,34 @@ object RuleParser {
         val afterThen = trimmed.substring(thenIndex + 4).trim()
         val afterThenLower = afterThen.lowercase()
 
-        // 2a. "focus on <címke>"
+        // 2a. "start timer <időzítő_név>" / "stop timer <időzítő_név>"
+        if (afterThenLower.startsWith("start timer") || afterThenLower.startsWith("stop timer") ||
+            afterThenLower.startsWith("start") || afterThenLower.startsWith("stop")
+        ) {
+            val action = if (afterThenLower.contains("start")) "start" else "stop"
+            val timerIndex = afterThenLower.indexOf("timer")
+            val tName = if (timerIndex != -1) {
+                afterThen.substring(timerIndex + 5).trim().removeSurrounding("\"").removeSurrounding("'")
+            } else {
+                afterThen.substring(action.length).trim().removeSurrounding("\"").removeSurrounding("'")
+            }
+            if (tName.isEmpty()) {
+                throw IllegalArgumentException("Meg kell adni az időzítő nevét! Pl.: start timer Klíma Időzítő")
+            }
+            return Rule(
+                id = id,
+                name = name,
+                label = defaultLabel,
+                conditionExpression = condition,
+                timerAction = action,
+                timerName = tName,
+                isUnconditional = false,
+                mayCauseChaining = mayCauseChaining,
+                referencedVariables = refVars
+            )
+        }
+
+        // 2b. "focus on <címke>"
         if (afterThenLower.startsWith("focus on") || afterThenLower.startsWith("focuse on")) {
             val focusTarget = afterThen.substring(afterThen.indexOf("on", ignoreCase = true) + 2).trim()
             if (focusTarget.isEmpty()) {
@@ -173,7 +276,7 @@ object RuleParser {
             )
         }
 
-        // 2b. "conclude that <változó> = <kifejezés>"
+        // 2c. "conclude that <változó> = <kifejezés>"
         var concludePart = afterThen
         if (afterThenLower.startsWith("conclude that")) {
             concludePart = afterThen.substring(13).trim()
@@ -222,13 +325,14 @@ data class UserFunctionData(
 
 /**
  * Egyedi névvel rendelkező Munkaterület (Workspace),
- * amely szabályokat (Rules), változókat és függvényeket tárol.
+ * amely szabályokat (Rules), változókat, függvényeket és időzítőket (Timers) tárol.
  */
 data class Workspace(
     val name: String,
     val variables: Map<String, String> = emptyMap(),
     val functions: List<UserFunctionData> = emptyList(),
-    val rules: List<Rule> = emptyList()
+    val rules: List<Rule> = emptyList(),
+    val timers: List<Timer> = emptyList()
 ) {
     fun toJsonString(): String {
         val varsStr = variables.entries.joinToString(",") { (k, v) ->
@@ -239,7 +343,8 @@ data class Workspace(
             "{\"name\":\"${escapeJson(f.name)}\",\"parameters\":[$paramsStr],\"expressionBody\":\"${escapeJson(f.expressionBody)}\"}"
         }
         val rulesStr = rules.joinToString(",") { it.toJsonString() }
-        return "{\"name\":\"${escapeJson(name)}\",\"variables\":{$varsStr},\"functions\":[$funcsStr],\"rules\":[$rulesStr]}"
+        val timersStr = timers.joinToString(",") { it.toJsonString() }
+        return "{\"name\":\"${escapeJson(name)}\",\"variables\":{$varsStr},\"functions\":[$funcsStr],\"rules\":[$rulesStr],\"timers\":[$timersStr]}"
     }
 
     companion object {
@@ -265,7 +370,12 @@ data class Workspace(
                 rulesList.add(Rule.fromMap(rMap))
             }
 
-            return Workspace(name, varsMap, funcsList, rulesList)
+            val timersList = mutableListOf<Timer>()
+            (map["timers"] as? List<Map<String, Any?>>)?.forEach { tMap ->
+                timersList.add(Timer.fromMap(tMap))
+            }
+
+            return Workspace(name, varsMap, funcsList, rulesList, timersList)
         }
     }
 }
@@ -309,12 +419,36 @@ data class Simulation(
                     referencedVariables = listOf("isHot")
                 ),
                 Rule(
+                    name = "Klíma Időzítő Indítása",
+                    label = "Klíma",
+                    conditionExpression = "temp > 25",
+                    timerAction = "start",
+                    timerName = "Klíma Időzítő",
+                    referencedVariables = listOf("temp")
+                ),
+                Rule(
+                    name = "Klíma Időzítő Leállítása",
+                    label = "Klíma",
+                    conditionExpression = "temp <= 20",
+                    timerAction = "stop",
+                    timerName = "Klíma Időzítő",
+                    referencedVariables = listOf("temp")
+                ),
+                Rule(
                     name = "Hőmérséklet Riasztás",
                     label = "Klíma",
                     conditionExpression = "temp > 25",
                     targetVariable = "status",
                     valueExpression = "\"Hűtés_szükséges\"",
                     referencedVariables = listOf("temp")
+                )
+            ),
+            timers = listOf(
+                Timer(
+                    name = "Klíma Időzítő",
+                    targetLabel = "Klíma",
+                    intervalMillis = 2000L,
+                    isRunning = false
                 )
             )
         ),

@@ -9,13 +9,16 @@ import androidx.lifecycle.viewModelScope
 import com.example.homework4mathtree.model.MathNode
 import com.example.homework4mathtree.model.Rule
 import com.example.homework4mathtree.model.Simulation
+import com.example.homework4mathtree.model.Timer
 import com.example.homework4mathtree.model.UserFunctionData
 import com.example.homework4mathtree.model.Value
 import com.example.homework4mathtree.model.Workspace
 import com.example.homework4mathtree.parser.MathExpressionParser
 import com.example.homework4mathtree.parser.UserFunction
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -27,7 +30,7 @@ data class RuleResult(
 
 /**
  * ViewModel a Munkaterületeket (Workspaces) tároló Szimuláció (Simulation),
- * a Szabályok (Rules) és az aszinkron Process Queue kiértékelési motor kezelésére.
+ * a Szabályok (Rules), Időzítők (Timers) és az aszinkron Process Queue kezelésére.
  */
 class MathTreeViewModel : ViewModel() {
 
@@ -61,6 +64,9 @@ class MathTreeViewModel : ViewModel() {
     var errorMessage by mutableStateOf<String?>(null)
         private set
 
+    // Aktív időzítők Coroutine Job-jai (timerId -> Job)
+    private val activeTimerJobs = mutableMapOf<String, Job>()
+
     private val parser = MathExpressionParser()
 
     val activeWorkspace: Workspace
@@ -75,9 +81,13 @@ class MathTreeViewModel : ViewModel() {
     val rulesList: List<Rule>
         get() = activeWorkspace.rules
 
+    val timersList: List<Timer>
+        get() = activeWorkspace.timers
+
     init {
         autoDetectVariables()
         evaluateRules()
+        syncTimers()
     }
 
     /**
@@ -98,6 +108,7 @@ class MathTreeViewModel : ViewModel() {
             simulation = simulation.copy(activeWorkspaceName = workspaceName)
             autoDetectVariables()
             evaluateRules()
+            syncTimers()
         }
     }
 
@@ -109,7 +120,8 @@ class MathTreeViewModel : ViewModel() {
                 name = trimmed,
                 variables = mapOf("x" to "10"),
                 functions = emptyList(),
-                rules = emptyList()
+                rules = emptyList(),
+                timers = emptyList()
             )
             val updatedMap = simulation.workspaces + (trimmed to newWs)
             simulation = simulation.copy(
@@ -118,6 +130,7 @@ class MathTreeViewModel : ViewModel() {
             )
             autoDetectVariables()
             evaluateRules()
+            syncTimers()
         }
     }
 
@@ -132,6 +145,7 @@ class MathTreeViewModel : ViewModel() {
             )
             autoDetectVariables()
             evaluateRules()
+            syncTimers()
         }
     }
 
@@ -200,6 +214,39 @@ class MathTreeViewModel : ViewModel() {
         }
     }
 
+    fun addOrUpdateTimer(timer: Timer, editIndex: Int? = null) {
+        val updatedTimers = activeWorkspace.timers.toMutableList()
+        if ((editIndex != null) && (editIndex in updatedTimers.indices)) {
+            updatedTimers[editIndex] = timer
+        } else {
+            updatedTimers.add(timer)
+        }
+        val currentWs = activeWorkspace.copy(timers = updatedTimers)
+        updateCurrentWorkspace(currentWs)
+        syncTimers()
+    }
+
+    fun toggleTimerRunning(timerId: String, isRunning: Boolean) {
+        val updatedTimers = activeWorkspace.timers.map { t ->
+            if (t.id == timerId) t.copy(isRunning = isRunning) else t
+        }
+        val currentWs = activeWorkspace.copy(timers = updatedTimers)
+        updateCurrentWorkspace(currentWs)
+        syncTimers()
+    }
+
+    fun removeTimer(index: Int) {
+        if (index in activeWorkspace.timers.indices) {
+            val updatedTimers = activeWorkspace.timers.toMutableList()
+            val removed = updatedTimers.removeAt(index)
+            activeTimerJobs[removed.id]?.cancel()
+            activeTimerJobs.remove(removed.id)
+            val currentWs = activeWorkspace.copy(timers = updatedTimers)
+            updateCurrentWorkspace(currentWs)
+            syncTimers()
+        }
+    }
+
     /**
      * Megnyitja a megadott szabály feltétel-fájának megjelenítő párbeszédablakát.
      */
@@ -236,6 +283,7 @@ class MathTreeViewModel : ViewModel() {
             val importedSim = Simulation.fromJsonString(jsonString)
             simulation = importedSim
             evaluateRules()
+            syncTimers()
         } catch (e: Exception) {
             errorMessage = "Érvénytelen JSON formátum: ${e.message}"
         }
@@ -250,8 +298,6 @@ class MathTreeViewModel : ViewModel() {
 
     /**
      * Aszinkron ütemezett szabály-feldolgozó motor (Process Queue).
-     * Ha egy változó értéke megváltozik ÉS a szabály engedélyezi a láncolást (mayCauseChaining = true),
-     * a program automatikusan sorba állítja az adott változóra hivatkozó szabályokat.
      */
     fun enqueueAndProcessRules(rulesToEnqueue: List<Rule>) {
         viewModelScope.launch(Dispatchers.Default) {
@@ -294,7 +340,24 @@ class MathTreeViewModel : ViewModel() {
                     val condMet = condNode.getValue().toBoolean()
 
                     if (condMet) {
-                        if (currentRule.isFocusRule) {
+                        if (currentRule.isTimerActionRule) {
+                            resultsMap[currentRule.id] = RuleResult(conditionMet = true)
+                            val action = currentRule.timerAction
+                            val tName = currentRule.timerName
+                            if (action != null && tName != null) {
+                                val targetTimer = activeWorkspace.timers.find {
+                                    it.name.equals(tName, ignoreCase = true)
+                                }
+                                if (targetTimer != null) {
+                                    val shouldRun = action.equals("start", ignoreCase = true)
+                                    if (targetTimer.isRunning != shouldRun) {
+                                        withContext(Dispatchers.Main) {
+                                            toggleTimerRunning(targetTimer.id, shouldRun)
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (currentRule.isFocusRule) {
                             resultsMap[currentRule.id] = RuleResult(conditionMet = true)
                             val targetLabel = currentRule.focusLabel
                             if (targetLabel != null) {
@@ -349,6 +412,40 @@ class MathTreeViewModel : ViewModel() {
             withContext(Dispatchers.Main) {
                 isQueueProcessing = false
                 processQueueSize = 0
+            }
+        }
+    }
+
+    /**
+     * Szinkronizálja az aktív időzítők háttérben futó Coroutine feladatait.
+     */
+    private fun syncTimers() {
+        val activeWs = activeWorkspace
+        val activeTimerIds = activeWs.timers.filter { it.isRunning }.map { it.id }.toSet()
+
+        // Leállítjuk azon időzítők feladatait, amelyek már nem futnak
+        activeTimerJobs.keys.toList().forEach { timerId ->
+            if (!activeTimerIds.contains(timerId)) {
+                activeTimerJobs[timerId]?.cancel()
+                activeTimerJobs.remove(timerId)
+            }
+        }
+
+        // Elindítjuk az újonnan bekapcsolt időzítők feladatait
+        activeWs.timers.filter { it.isRunning }.forEach { timer ->
+            if (!activeTimerJobs.containsKey(timer.id)) {
+                val job = viewModelScope.launch(Dispatchers.Default) {
+                    while (isActive) {
+                        delay(timer.intervalMillis)
+                        val targetRules = activeWorkspace.rules.filter {
+                            it.isActive && it.label.equals(timer.targetLabel, ignoreCase = true)
+                        }
+                        if (targetRules.isNotEmpty()) {
+                            enqueueAndProcessRules(targetRules)
+                        }
+                    }
+                }
+                activeTimerJobs[timer.id] = job
             }
         }
     }

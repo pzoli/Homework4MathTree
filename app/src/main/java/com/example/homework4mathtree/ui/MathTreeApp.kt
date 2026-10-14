@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -17,10 +18,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.homework4mathtree.model.RuleParser
+import com.example.homework4mathtree.model.Timer
 import com.example.homework4mathtree.model.UserFunctionData
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -33,6 +36,7 @@ fun MathTreeApp(
     val variableInputs = viewModel.variableInputs
     val userFunctionsList = viewModel.userFunctionsList
     val rulesList = viewModel.rulesList
+    val timersList = viewModel.timersList
     val ruleResults = viewModel.ruleResults
 
     val isQueueProcessing = viewModel.isQueueProcessing
@@ -71,6 +75,13 @@ fun MathTreeApp(
     var ruleTextInput by rememberSaveable { mutableStateOf("") }
     var ruleChainingInput by rememberSaveable { mutableStateOf(true) }
     var ruleDialogError by rememberSaveable { mutableStateOf<String?>(null) }
+
+    // Időzítő (Timer) hozzáadása / szerkesztése dialog állapotok
+    var showTimerDialog by rememberSaveable { mutableStateOf(false) }
+    var editingTimerIndex by rememberSaveable { mutableStateOf<Int?>(null) }
+    var timerNameInput by rememberSaveable { mutableStateOf("") }
+    var timerTargetLabelInput by rememberSaveable { mutableStateOf("") }
+    var timerIntervalSecInput by rememberSaveable { mutableStateOf("2") }
 
     var ruleDialogTab by remember { mutableIntStateOf(0) }
 
@@ -195,18 +206,31 @@ fun MathTreeApp(
                         }
                     }
 
-                    // Process Queue Állapotjelző
-                    if (isQueueProcessing) {
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
+                    // Process Queue Állapotjelző (Állandóan látható az elrendezés ugrálásának elkerülésére)
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (isQueueProcessing) {
                             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                             Text(
                                 text = "⚙️ Process Queue futtatása ($processQueueSize szabály a sorban)...",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                progress = { 0f },
+                                modifier = Modifier.fillMaxWidth(),
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                                trackColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                            Text(
+                                text = "✅ Process Queue tétlen (Készenlétben)",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -319,6 +343,7 @@ fun MathTreeApp(
                                                 color = Color(0xFFE8F5E9)
                                             ) {
                                                 val statusText = when {
+                                                    rule.isTimerActionRule -> "✅ Feltétel: IGAZ -> Időzítő ${if (rule.timerAction.equals("start", ignoreCase = true)) "elindítva" else "leállítva"}: ${rule.timerName}"
                                                     rule.isUnconditional -> "✅ Feltétel nélküli értékadás -> ${rule.targetVariable} = ${r.assignedValue?.toDisplayString()}"
                                                     rule.isFocusRule -> "✅ Feltétel: IGAZ -> Fókuszált címke: ${rule.focusLabel}"
                                                     else -> "✅ Feltétel: IGAZ -> Beállítva: ${rule.targetVariable} = ${r.assignedValue?.toDisplayString()}"
@@ -354,6 +379,120 @@ fun MathTreeApp(
                                         shape = RoundedCornerShape(8.dp)
                                     ) {
                                         Text("🔍 Feltétel Fájának Megtekintése", fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Időzítők (Timers) Szekció: Időszakos Szabály-fókuszálás
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Időzítők (Timers - Időszakos Fókuszálás):",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        TextButton(
+                            onClick = {
+                                editingTimerIndex = null
+                                timerNameInput = "Időzítő ${timersList.size + 1}"
+                                timerTargetLabelInput = "Klíma"
+                                timerIntervalSecInput = "2"
+                                showTimerDialog = true
+                            }
+                        ) {
+                            Text("+ Új Időzítő", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    if (timersList.isEmpty()) {
+                        Text(
+                            text = "Nincsenek időzítők ezen a munkaterületen. Hozz létre újat a '+ Új Időzítő' gombbal!",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        timersList.forEachIndexed { index, timer ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surface
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Text(
+                                                text = "⏱️ ${timer.name}",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 15.sp
+                                            )
+                                            SuggestionChip(
+                                                onClick = {},
+                                                label = { Text("focus on ${timer.targetLabel}", fontSize = 11.sp) }
+                                            )
+                                        }
+                                        Text(
+                                            text = "Időköz: ${timer.intervalMillis / 1000.0} mp (${timer.intervalMillis} ms)",
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Switch(
+                                            checked = timer.isRunning,
+                                            onCheckedChange = { viewModel.toggleTimerRunning(timer.id, it) }
+                                        )
+                                        IconButton(
+                                            onClick = {
+                                                editingTimerIndex = index
+                                                timerNameInput = timer.name
+                                                timerTargetLabelInput = timer.targetLabel
+                                                timerIntervalSecInput = (timer.intervalMillis / 1000.0).toString()
+                                                showTimerDialog = true
+                                            }
+                                        ) {
+                                            Text("✏️", fontSize = 16.sp)
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                viewModel.removeTimer(index)
+                                            }
+                                        ) {
+                                            Text("🗑️", fontSize = 16.sp)
+                                        }
                                     }
                                 }
                             }
@@ -650,6 +789,74 @@ fun MathTreeApp(
         )
     }
 
+    // Új / Szerkesztendő Időzítő (Timer) párbeszédablak
+    if (showTimerDialog) {
+        AlertDialog(
+            onDismissRequest = { showTimerDialog = false },
+            title = {
+                Text(if (editingTimerIndex == null) "Új Időzítő (Timer)" else "Időzítő szerkesztése")
+            },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedTextField(
+                        value = timerNameInput,
+                        onValueChange = { timerNameInput = it },
+                        label = { Text("Időzítő neve (pl. Klíma Időzítő)") },
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = timerTargetLabelInput,
+                        onValueChange = { timerTargetLabelInput = it },
+                        label = { Text("Cél szabály címke (pl. Klíma)") },
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = timerIntervalSecInput,
+                        onValueChange = { timerIntervalSecInput = it },
+                        label = { Text("Időköz másodpercben (pl. 2 vagy 5)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val sec = timerIntervalSecInput.toDoubleOrNull() ?: 2.0
+                        val millis = (sec * 1000).toLong().coerceAtLeast(500L)
+                        val newTimer = Timer(
+                            id = if (editingTimerIndex != null && editingTimerIndex!! in timersList.indices) {
+                                timersList[editingTimerIndex!!].id
+                            } else {
+                                java.util.UUID.randomUUID().toString()
+                            },
+                            name = timerNameInput.ifEmpty { "Időzítő" },
+                            targetLabel = timerTargetLabelInput.ifEmpty { "Klíma" },
+                            intervalMillis = millis,
+                            isRunning = if (editingTimerIndex != null && editingTimerIndex!! in timersList.indices) {
+                                timersList[editingTimerIndex!!].isRunning
+                            } else {
+                                false
+                            }
+                        )
+                        viewModel.addOrUpdateTimer(newTimer, editingTimerIndex)
+                        showTimerDialog = false
+                    }
+                ) {
+                    Text("Mentés")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTimerDialog = false }) {
+                    Text("Mégse")
+                }
+            }
+        )
+    }
+
     // Új / Szerkesztendő Szabály párbeszédablak
     if (showRuleDialog) {
         AlertDialog(
@@ -700,16 +907,20 @@ fun MathTreeApp(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         SuggestionChip(
+                            onClick = { ruleTextInput = "if temp > 25 then start timer Klíma Időzítő" },
+                            label = { Text("start timer minta", fontSize = 11.sp) }
+                        )
+                        SuggestionChip(
+                            onClick = { ruleTextInput = "if temp <= 20 then stop timer Klíma Időzítő" },
+                            label = { Text("stop timer minta", fontSize = 11.sp) }
+                        )
+                        SuggestionChip(
                             onClick = { ruleTextInput = "if x1 <= 10 then conclude that x1 = x1 + 2" },
                             label = { Text("x1 = x1 + 2 (Chaining)", fontSize = 11.sp) }
                         )
                         SuggestionChip(
                             onClick = { ruleTextInput = "unconditionally conclude that x1 = 10 + y" },
                             label = { Text("unconditionally minta", fontSize = 11.sp) }
-                        )
-                        SuggestionChip(
-                            onClick = { ruleTextInput = "if temp > 25 then focus on Klíma" },
-                            label = { Text("focus on minta", fontSize = 11.sp) }
                         )
                     }
 

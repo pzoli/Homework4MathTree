@@ -304,4 +304,72 @@ class MathParserTest {
         condNode = parser.parse(rule.conditionExpression, vars)
         assertFalse(condNode.getValue().toBoolean())
     }
+
+    @Test
+    fun testTimerDataClass() {
+        val timer = Timer(
+            name = "Klíma Időzítő",
+            targetLabel = "Klíma",
+            intervalMillis = 2000L,
+            isRunning = true
+        )
+
+        assertEquals("Klíma Időzítő", timer.name)
+        assertEquals("Klíma", timer.targetLabel)
+        assertEquals(2000L, timer.intervalMillis)
+        assertTrue(timer.isRunning)
+
+        // Test Workspace containing timers and JSON serialization roundtrip
+        val ws = Workspace(
+            name = "Teszt WS",
+            timers = listOf(timer)
+        )
+        assertEquals(1, ws.timers.size)
+
+        val jsonStr = ws.toJsonString()
+        @Suppress("UNCHECKED_CAST")
+        val parsedMap = Simulation.fromJsonString(
+            "{\"activeWorkspaceName\":\"Teszt WS\",\"workspaces\":[$jsonStr]}"
+        ).getActiveWorkspace()
+
+        assertEquals(1, parsedMap.timers.size)
+        assertEquals("Klíma Időzítő", parsedMap.timers[0].name)
+        assertEquals("Klíma", parsedMap.timers[0].targetLabel)
+        assertEquals(2000L, parsedMap.timers[0].intervalMillis)
+        assertTrue(parsedMap.timers[0].isRunning)
+    }
+
+    @Test
+    fun testTimerActionRuleParsing() {
+        // start timer rule
+        val r1 = RuleParser.parseRuleText(
+            name = "Klíma Start",
+            text = "if temp > 25 then start timer Klíma Időzítő"
+        )
+        assertTrue(r1.isTimerActionRule)
+        assertEquals("start", r1.timerAction)
+        assertEquals("Klíma Időzítő", r1.timerName)
+        assertEquals("if temp > 25 then start timer Klíma Időzítő", r1.toRuleText())
+
+        // stop timer rule
+        val r2 = RuleParser.parseRuleText(
+            name = "Klíma Stop",
+            text = "if temp <= 20 then stop timer Klíma Időzítő"
+        )
+        assertTrue(r2.isTimerActionRule)
+        assertEquals("stop", r2.timerAction)
+        assertEquals("Klíma Időzítő", r2.timerName)
+        assertEquals("if temp <= 20 then stop timer Klíma Időzítő", r2.toRuleText())
+
+        // unconditionally start timer rule
+        val r3 = RuleParser.parseRuleText(
+            name = "Kezdő Timer Start",
+            text = "unconditionally start timer Klíma Időzítő"
+        )
+        assertTrue(r3.isTimerActionRule)
+        assertTrue(r3.isUnconditional)
+        assertEquals("start", r3.timerAction)
+        assertEquals("Klíma Időzítő", r3.timerName)
+        assertEquals("unconditionally start timer Klíma Időzítő", r3.toRuleText())
+    }
 }
