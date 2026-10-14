@@ -241,4 +241,28 @@ class MathParserTest {
         val valueTree = parser.parse(rule.valueExpression, vars)
         assertEquals(Value.Number(10.0), valueTree.getValue())
     }
+
+    @Test
+    fun testRuleTextParser() {
+        // Conclude rule parsing
+        val r1 = RuleParser.parseRuleText(
+            name = "Szabály 1",
+            text = "if v1 == \"teszt\" then conclude that x1 = 10"
+        )
+        assertEquals("v1 == \"teszt\"", r1.conditionExpression)
+        assertEquals("x1", r1.targetVariable)
+        assertEquals("10", r1.valueExpression)
+        assertFalse(r1.isFocusRule)
+        assertEquals("if v1 == \"teszt\" then conclude that x1 = 10", r1.toRuleText())
+
+        // Focus rule parsing
+        val r2 = RuleParser.parseRuleText(
+            name = "Szabály 2",
+            text = "if temp > 25 then focus on Klíma"
+        )
+        assertEquals("temp > 25", r2.conditionExpression)
+        assertTrue(r2.isFocusRule)
+        assertEquals("Klíma", r2.focusLabel)
+        assertEquals("if temp > 25 then focus on Klíma", r2.toRuleText())
+    }
 }

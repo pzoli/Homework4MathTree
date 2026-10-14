@@ -230,6 +230,7 @@ class MathTreeViewModel : ViewModel() {
     /**
      * Szabályok kiértékelése (Futtatása).
      * Ha szűrő van beállítva (selectedLabelFilter), csak az adott címkével rendelkező szabályok futnak le.
+     * A "focus on <címke>" típusú szabályok rekurzívan lefuttatják a cél címkéhez tartozó szabályokat is.
      */
     fun evaluateRules(labelFilter: String? = selectedLabelFilter) {
         errorMessage = null
@@ -241,41 +242,56 @@ class MathTreeViewModel : ViewModel() {
             it.name to UserFunction(it.name, it.parameters, it.expressionBody)
         }
 
-        currentWs.rules.forEach { rule ->
-            if (!rule.isActive) return@forEach
-            if (labelFilter != null && labelFilter != "Összes" && rule.label != labelFilter) {
-                return@forEach
-            }
+        fun evaluateRuleList(rulesToRun: List<Rule>) {
+            rulesToRun.forEach { rule ->
+                if (!rule.isActive) return@forEach
+                if (labelFilter != null && labelFilter != "Összes" && rule.label != labelFilter) {
+                    return@forEach
+                }
 
-            try {
-                val valueVariables = updatedVars.mapValues { parseVariableValue(it.value) }
-                val condNode = parser.parse(
-                    input = rule.conditionExpression,
-                    variables = valueVariables,
-                    userFunctions = userFuncMap,
-                    isDegreeMode = isDegreeMode,
-                    simulation = simulation
-                )
-                val condMet = condNode.getValue().toBoolean()
-
-                if (condMet) {
-                    val valueNode = parser.parse(
-                        input = rule.valueExpression,
+                try {
+                    val valueVariables = updatedVars.mapValues { parseVariableValue(it.value) }
+                    val condNode = parser.parse(
+                        input = rule.conditionExpression,
                         variables = valueVariables,
                         userFunctions = userFuncMap,
                         isDegreeMode = isDegreeMode,
                         simulation = simulation
                     )
-                    val assignedVal = valueNode.getValue()
-                    updatedVars[rule.targetVariable] = assignedVal.toDisplayString()
-                    resultsMap[rule.id] = RuleResult(conditionMet = true, assignedValue = assignedVal)
-                } else {
-                    resultsMap[rule.id] = RuleResult(conditionMet = false)
+                    val condMet = condNode.getValue().toBoolean()
+
+                    if (condMet) {
+                        if (rule.isFocusRule) {
+                            resultsMap[rule.id] = RuleResult(conditionMet = true)
+                            val targetLabel = rule.focusLabel
+                            if (targetLabel != null) {
+                                val focusRules = currentWs.rules.filter {
+                                    it.label.equals(targetLabel, ignoreCase = true) && it.id != rule.id
+                                }
+                                evaluateRuleList(focusRules)
+                            }
+                        } else {
+                            val valueNode = parser.parse(
+                                input = rule.valueExpression,
+                                variables = valueVariables,
+                                userFunctions = userFuncMap,
+                                isDegreeMode = isDegreeMode,
+                                simulation = simulation
+                            )
+                            val assignedVal = valueNode.getValue()
+                            updatedVars[rule.targetVariable] = assignedVal.toDisplayString()
+                            resultsMap[rule.id] = RuleResult(conditionMet = true, assignedValue = assignedVal)
+                        }
+                    } else {
+                        resultsMap[rule.id] = RuleResult(conditionMet = false)
+                    }
+                } catch (e: Exception) {
+                    resultsMap[rule.id] = RuleResult(conditionMet = false, errorMessage = e.message)
                 }
-            } catch (e: Exception) {
-                resultsMap[rule.id] = RuleResult(conditionMet = false, errorMessage = e.message)
             }
         }
+
+        evaluateRuleList(currentWs.rules)
 
         ruleResults = resultsMap
         if (updatedVars != currentWs.variables) {
@@ -302,7 +318,11 @@ class MathTreeViewModel : ViewModel() {
 
         currentWs.rules.forEach { rule ->
             val detectedCondVars = parser.extractVariables(rule.conditionExpression, userFuncMap, simulation)
-            val detectedValVars = parser.extractVariables(rule.valueExpression, userFuncMap, simulation)
+            val detectedValVars = if (rule.valueExpression.isNotEmpty()) {
+                parser.extractVariables(rule.valueExpression, userFuncMap, simulation)
+            } else {
+                emptyList()
+            }
 
             (detectedCondVars + detectedValVars).distinct().forEach { varName ->
                 if (!updatedVars.containsKey(varName) && !varName.contains(".")) {

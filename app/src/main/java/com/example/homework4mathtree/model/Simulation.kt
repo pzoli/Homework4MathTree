@@ -3,19 +3,34 @@ package com.example.homework4mathtree.model
 import java.util.UUID
 
 /**
- * Szabály (Rule) adatmodell: "if <feltétel> then conclude that <változó> = <érték_kifejezés>"
- * Címkével (label) van ellátva a csoportos fókuszáláshoz és kiértékeléshez.
+ * Szabály (Rule) adatmodell: "if <feltétel> then conclude that <változó> = <érték>"
+ * vagy "if <feltétel> then focus on <címke>"
  */
 data class Rule(
     val id: String = UUID.randomUUID().toString(),
     val name: String,                            // Szabály neve (pl. "Szabály 1")
     val label: String = "Alapértelmezett",        // Címke csoportos fókuszhoz (pl. "Teszt", "Klíma")
     val conditionExpression: String,             // Feltétel kifejezés (pl. "v1 == \"teszt\"" vagy "temp > 25")
-    val targetVariable: String,                  // Cél változó neve (pl. "x1")
-    val valueExpression: String,                 // Beállítandó érték kifejezése (pl. "10" vagy "\"Hűtés\"")
+    val targetVariable: String = "",             // Cél változó neve (pl. "x1" vagy "status")
+    val valueExpression: String = "",            // Beállítandó érték kifejezése (pl. "10" vagy "\"Hűtés\"")
+    val focusLabel: String? = null,              // Ha "focus on <címke>" típusú szabály
     val isActive: Boolean = true
 ) {
+    val isFocusRule: Boolean get() = focusLabel != null
+
+    /**
+     * Visszaadja a szabály teljes szöveges formátumát.
+     */
+    fun toRuleText(): String {
+        return if (isFocusRule) {
+            "if $conditionExpression then focus on $focusLabel"
+        } else {
+            "if $conditionExpression then conclude that $targetVariable = $valueExpression"
+        }
+    }
+
     fun toJsonString(): String {
+        val focusStr = if (focusLabel != null) ",\"focusLabel\":\"${escapeJson(focusLabel)}\"" else ""
         return "{" +
             "\"id\":\"${escapeJson(id)}\"," +
             "\"name\":\"${escapeJson(name)}\"," +
@@ -24,6 +39,7 @@ data class Rule(
             "\"targetVariable\":\"${escapeJson(targetVariable)}\"," +
             "\"valueExpression\":\"${escapeJson(valueExpression)}\"," +
             "\"isActive\":$isActive" +
+            focusStr +
             "}"
     }
 
@@ -34,11 +50,96 @@ data class Rule(
                 name = map["name"]?.toString() ?: "Szabály",
                 label = map["label"]?.toString() ?: "Alapértelmezett",
                 conditionExpression = map["conditionExpression"]?.toString() ?: "true",
-                targetVariable = map["targetVariable"]?.toString() ?: "x1",
-                valueExpression = map["valueExpression"]?.toString() ?: "10",
+                targetVariable = map["targetVariable"]?.toString() ?: "",
+                valueExpression = map["valueExpression"]?.toString() ?: "",
+                focusLabel = map["focusLabel"]?.toString(),
                 isActive = map["isActive"] as? Boolean ?: true
             )
         }
+    }
+}
+
+/**
+ * Szöveges Rule Parser: leképezi az "if...then...conclude that"
+ * vagy "if...then...focus on" karakterláncokat Rule objektummá.
+ */
+object RuleParser {
+    fun parseRuleText(
+        name: String,
+        text: String,
+        defaultLabel: String = "Alapértelmezett",
+        id: String = UUID.randomUUID().toString()
+    ): Rule {
+        val trimmed = text.trim()
+        val lower = trimmed.lowercase()
+
+        val ifIndex = lower.indexOf("if")
+        if (ifIndex == -1) {
+            throw IllegalArgumentException("A szabálynak tartalmaznia kell az 'if' kulcsszót! Pl.: if temp > 25 then conclude that status = 10")
+        }
+
+        val thenIndex = lower.indexOf("then", ifIndex + 2)
+        if (thenIndex == -1) {
+            throw IllegalArgumentException("A szabálynak tartalmaznia kell a 'then' kulcsszót az 'if' feltétel után!")
+        }
+
+        val condition = trimmed.substring(ifIndex + 2, thenIndex).trim()
+        if (condition.isEmpty()) {
+            throw IllegalArgumentException("Az 'if' és 'then' közötti feltétel nem lehet üres!")
+        }
+
+        val afterThen = trimmed.substring(thenIndex + 4).trim()
+        val afterThenLower = afterThen.lowercase()
+
+        // 1. "focus on <címke>" vagy "focuse on <címke>" típusú szabályok
+        if (afterThenLower.startsWith("focus on") || afterThenLower.startsWith("focuse on")) {
+            val focusTarget = afterThen.substring(afterThen.indexOf("on", ignoreCase = true) + 2).trim()
+            if (focusTarget.isEmpty()) {
+                throw IllegalArgumentException("A 'focus on' után meg kell adni a fókuszálandó címkét! Pl.: focus on Klíma")
+            }
+            return Rule(
+                id = id,
+                name = name,
+                label = defaultLabel,
+                conditionExpression = condition,
+                targetVariable = "",
+                valueExpression = "",
+                focusLabel = focusTarget
+            )
+        }
+
+        // 2. "conclude that <változó> = <kifejezés>" típusú szabályok
+        var concludePart = afterThen
+        if (afterThenLower.startsWith("conclude that")) {
+            concludePart = afterThen.substring(13).trim()
+        } else if (afterThenLower.startsWith("conclude")) {
+            concludePart = afterThen.substring(8).trim()
+        }
+
+        val eqIndex = concludePart.indexOf('=')
+        if (eqIndex == -1) {
+            throw IllegalArgumentException("A 'then conclude that' után meg kell adni egy változó értékadást! Pl.: conclude that status = \"Hűtés\"")
+        }
+
+        val targetVar = concludePart.substring(0, eqIndex).trim()
+        val valExpr = concludePart.substring(eqIndex + 1).trim()
+
+        if (targetVar.isEmpty()) {
+            throw IllegalArgumentException("Hiányzó cél változó név az '=' előtt!")
+        }
+        if (valExpr.isEmpty()) {
+            throw IllegalArgumentException("Hiányzó érték kifejezés az '=' után!")
+        }
+
+        return Rule(
+            id = id,
+            name = name,
+            label = defaultLabel,
+            conditionExpression = condition,
+            targetVariable = targetVar,
+            valueExpression = valExpr,
+            focusLabel = null
+        )
     }
 }
 
@@ -110,7 +211,7 @@ data class Simulation(
     val workspaces: Map<String, Workspace> = mapOf(
         "Fő_Munkaterület" to Workspace(
             name = "Fő_Munkaterület",
-            variables = mapOf("v1" to "teszt", "a" to "1", "b" to "3", "temp" to "28"),
+            variables = mapOf("v1" to "teszt", "a" to "1", "b" to "3", "temp" to "28", "isHot" to "true"),
             functions = listOf(
                 UserFunctionData("függvény1", listOf("x"), "2 * x")
             ),
@@ -123,7 +224,13 @@ data class Simulation(
                     valueExpression = "10"
                 ),
                 Rule(
-                    name = "Szabály 2 - Hőmérséklet riasztás",
+                    name = "Szabály 2 - Kánikula fókusz",
+                    label = "Klíma",
+                    conditionExpression = "isHot == true",
+                    focusLabel = "Klíma"
+                ),
+                Rule(
+                    name = "Szabály 3 - Hőmérséklet riasztás",
                     label = "Klíma",
                     conditionExpression = "temp > 25",
                     targetVariable = "status",

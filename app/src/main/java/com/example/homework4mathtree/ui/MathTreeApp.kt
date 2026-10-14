@@ -15,13 +15,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.homework4mathtree.model.Rule
+import com.example.homework4mathtree.model.RuleParser
 import com.example.homework4mathtree.model.UserFunctionData
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -63,18 +62,16 @@ fun MathTreeApp(
     var funcParamsInput by rememberSaveable { mutableStateOf("") }
     var funcBodyInput by rememberSaveable { mutableStateOf("") }
 
-    // Szabály (Rule) hozzáadása / szerkesztése dialog állapotok
+    // Szabály (Rule) hozzáadása / szerkesztése dialog állapotok (Egyetlen szövegmező a szabály szövegének)
     var showRuleDialog by rememberSaveable { mutableStateOf(false) }
     var editingRuleIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     var ruleNameInput by rememberSaveable { mutableStateOf("") }
     var ruleLabelInput by rememberSaveable { mutableStateOf("") }
-    var ruleCondInput by rememberSaveable { mutableStateOf("") }
-    var ruleTargetVarInput by rememberSaveable { mutableStateOf("") }
-    var ruleValueExprInput by rememberSaveable { mutableStateOf("") }
+    var ruleTextInput by rememberSaveable { mutableStateOf("") }
+    var ruleDialogError by rememberSaveable { mutableStateOf<String?>(null) }
 
     var ruleDialogTab by remember { mutableIntStateOf(0) }
 
-    val keyboardController = LocalSoftwareKeyboardController.current
     val scrollState = rememberScrollState()
 
     Scaffold(
@@ -162,7 +159,7 @@ fun MathTreeApp(
                 }
             }
 
-            // Szabályok (Rules) Szekció: if...then...conclude that
+            // Szabályok (Rules) Szekció: if...then...conclude that vagy if...then...focus on
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -233,9 +230,8 @@ fun MathTreeApp(
                                 editingRuleIndex = null
                                 ruleNameInput = "Szabály ${rulesList.size + 1}"
                                 ruleLabelInput = "Alapértelmezett"
-                                ruleCondInput = "v1 == \"teszt\""
-                                ruleTargetVarInput = "x1"
-                                ruleValueExprInput = "10"
+                                ruleTextInput = "if v1 == \"teszt\" then conclude that x1 = 10"
+                                ruleDialogError = null
                                 showRuleDialog = true
                             }
                         ) {
@@ -289,9 +285,8 @@ fun MathTreeApp(
                                                     editingRuleIndex = index
                                                     ruleNameInput = rule.name
                                                     ruleLabelInput = rule.label
-                                                    ruleCondInput = rule.conditionExpression
-                                                    ruleTargetVarInput = rule.targetVariable
-                                                    ruleValueExprInput = rule.valueExpression
+                                                    ruleTextInput = rule.toRuleText()
+                                                    ruleDialogError = null
                                                     showRuleDialog = true
                                                 }
                                             ) {
@@ -307,9 +302,9 @@ fun MathTreeApp(
                                         }
                                     }
 
-                                    // Szabály Formula megjelenítése: if...then...conclude that
+                                    // Szabály egyetlen összefüggő szövegként: if...then...conclude that vagy if...then...focus on
                                     Text(
-                                        text = "if (${rule.conditionExpression})\nthen conclude that ${rule.targetVariable} = ${rule.valueExpression}",
+                                        text = rule.toRuleText(),
                                         fontFamily = FontFamily.Monospace,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.SemiBold,
@@ -323,8 +318,13 @@ fun MathTreeApp(
                                                 shape = RoundedCornerShape(6.dp),
                                                 color = Color(0xFFE8F5E9)
                                             ) {
+                                                val statusText = if (rule.isFocusRule) {
+                                                    "✅ Feltétel: IGAZ -> Fókuszált címke: ${rule.focusLabel}"
+                                                } else {
+                                                    "✅ Feltétel: IGAZ -> Beállítva: ${rule.targetVariable} = ${r.assignedValue?.toDisplayString()}"
+                                                }
                                                 Text(
-                                                    text = "✅ Feltétel: IGAZ -> Beállítva: ${rule.targetVariable} = ${r.assignedValue?.toDisplayString()}",
+                                                    text = statusText,
                                                     color = Color(0xFF2E7D32),
                                                     fontSize = 12.sp,
                                                     fontWeight = FontWeight.Bold,
@@ -650,12 +650,12 @@ fun MathTreeApp(
         )
     }
 
-    // Új / Szerkesztendő Szabály párbeszédablak
+    // Új / Szerkesztendő Szabály párbeszédablak (Egyetlen Összefüggő Szövegmezővel)
     if (showRuleDialog) {
         AlertDialog(
             onDismissRequest = { showRuleDialog = false },
             title = {
-                Text(if (editingRuleIndex == null) "Új Szabály (if...then...)" else "Szabály szerkesztése")
+                Text(if (editingRuleIndex == null) "Új Szabály (Rule Editor)" else "Szabály szerkesztése")
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -668,42 +668,66 @@ fun MathTreeApp(
                     OutlinedTextField(
                         value = ruleLabelInput,
                         onValueChange = { ruleLabelInput = it },
-                        label = { Text("Címke / Tag (pl. Klíma, Fizika)") },
+                        label = { Text("Címke / Tag (pl. Klíma, Teszt)") },
                         singleLine = true
                     )
+
+                    // Minta beszúrás chip-ek
+                    Text(text = "Minta formátumok:", style = MaterialTheme.typography.labelSmall)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        SuggestionChip(
+                            onClick = { ruleTextInput = "if v1 == \"teszt\" then conclude that x1 = 10" },
+                            label = { Text("conclude that minta", fontSize = 11.sp) }
+                        )
+                        SuggestionChip(
+                            onClick = { ruleTextInput = "if temp > 25 then focus on Klíma" },
+                            label = { Text("focus on minta", fontSize = 11.sp) }
+                        )
+                    }
+
+                    // EGYETLEN SZÖVEGBEVITELI MEZŐ A SZABÁLYNAK
                     OutlinedTextField(
-                        value = ruleCondInput,
-                        onValueChange = { ruleCondInput = it },
-                        label = { Text("IF Feltétel (pl. temp > 25 vagy v1 == \"teszt\")") },
-                        singleLine = true
+                        value = ruleTextInput,
+                        onValueChange = {
+                            ruleTextInput = it
+                            ruleDialogError = null
+                        },
+                        label = { Text("Szabály Szövege (if...then...)") },
+                        placeholder = { Text("pl.: if temp > 25 then conclude that status = \"Hűtés_szükséges\"") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3,
+                        maxLines = 5,
+                        textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 13.sp)
                     )
-                    OutlinedTextField(
-                        value = ruleTargetVarInput,
-                        onValueChange = { ruleTargetVarInput = it.trim() },
-                        label = { Text("THEN Cél Változó neve (pl. x1 vagy status)") },
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = ruleValueExprInput,
-                        onValueChange = { ruleValueExprInput = it },
-                        label = { Text("CONCLUDE VALUE Érték kifejezése (pl. 10 vagy \"Hűtés\")") },
-                        singleLine = true
-                    )
+
+                    ruleDialogError?.let { err ->
+                        Text(text = "⚠️ $err", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        if (ruleNameInput.isNotEmpty() && ruleCondInput.isNotEmpty() && ruleTargetVarInput.isNotEmpty()) {
-                            val newRule = Rule(
-                                name = ruleNameInput,
-                                label = ruleLabelInput.ifEmpty { "Alapértelmezett" },
-                                conditionExpression = ruleCondInput,
-                                targetVariable = ruleTargetVarInput,
-                                valueExpression = ruleValueExprInput
+                        try {
+                            val parsedRule = RuleParser.parseRuleText(
+                                name = ruleNameInput.ifEmpty { "Szabály" },
+                                text = ruleTextInput,
+                                defaultLabel = ruleLabelInput.ifEmpty { "Alapértelmezett" },
+                                id = if (editingRuleIndex != null && editingRuleIndex!! in rulesList.indices) {
+                                    rulesList[editingRuleIndex!!].id
+                                } else {
+                                    java.util.UUID.randomUUID().toString()
+                                }
                             )
-                            viewModel.addOrUpdateRule(newRule, editingRuleIndex)
+                            viewModel.addOrUpdateRule(parsedRule, editingRuleIndex)
                             showRuleDialog = false
+                        } catch (e: Exception) {
+                            ruleDialogError = e.message ?: "Érvénytelen szabály formátum!"
                         }
                     }
                 ) {
