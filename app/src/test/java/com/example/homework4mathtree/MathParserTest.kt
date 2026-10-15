@@ -255,15 +255,15 @@ class MathParserTest {
         assertFalse(r1.isFocusRule)
         assertEquals("if v1 == \"teszt\" then conclude that x1 = 10", r1.toRuleText())
 
-        // Focus rule parsing
+        // Invoke rule parsing
         val r2 = RuleParser.parseRuleText(
             name = "Szabály 2",
-            text = "if temp > 25 then focus on Klíma"
+            text = "if temp > 25 then invoke Klíma rules"
         )
         assertEquals("temp > 25", r2.conditionExpression)
         assertTrue(r2.isFocusRule)
         assertEquals("Klíma", r2.focusLabel)
-        assertEquals("if temp > 25 then focus on Klíma", r2.toRuleText())
+        assertEquals("if temp > 25 then invoke Klíma rules", r2.toRuleText())
 
         // Unconditional rule parsing
         val r3 = RuleParser.parseRuleText(

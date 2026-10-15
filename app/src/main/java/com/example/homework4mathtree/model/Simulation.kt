@@ -40,7 +40,7 @@ data class Timer(
 /**
  * Szabály (Rule) adatmodell:
  * 1. Értékadó: "if <feltétel> then conclude that <változó> = <érték>"
- * 2. Fókuszáló: "if <feltétel> then focus on <címke>"
+ * 2. Meghívó/Fókuszáló: "if <feltétel> then invoke <címke> rules"
  * 3. Időzítő vezérlő: "if <feltétel> then start/stop timer <időzítő_név>"
  * 4. Feltétel nélküli: "unconditionally ..."
  */
@@ -51,7 +51,7 @@ data class Rule(
     val conditionExpression: String,             // Feltétel kifejezés (pl. "x1 <= 10")
     val targetVariable: String = "",             // Cél változó neve (pl. "x1" vagy "status")
     val valueExpression: String = "",            // Beállítandó érték kifejezése (pl. "x1 + 2")
-    val focusLabel: String? = null,              // Ha "focus on <címke>" típusú szabály
+    val focusLabel: String? = null,              // Ha "invoke <címke> rules" típusú szabály
     val timerAction: String? = null,             // "start" vagy "stop" ha időzítőt indít/állít le
     val timerName: String? = null,               // Az elindítandó vagy leállítandó időzítő neve
     val isUnconditional: Boolean = false,        // true esetén feltétel nélküli szabály
@@ -69,8 +69,9 @@ data class Rule(
         return when {
             isTimerActionRule && isUnconditional -> "unconditionally $timerAction timer $timerName"
             isTimerActionRule -> "if $conditionExpression then $timerAction timer $timerName"
+            isUnconditional && isFocusRule -> "unconditionally invoke $focusLabel rules"
             isUnconditional -> "unconditionally conclude that $targetVariable = $valueExpression"
-            isFocusRule -> "if $conditionExpression then focus on $focusLabel"
+            isFocusRule -> "if $conditionExpression then invoke $focusLabel rules"
             else -> "if $conditionExpression then conclude that $targetVariable = $valueExpression"
         }
     }
@@ -145,7 +146,34 @@ object RuleParser {
             var rest = trimmed.substring(15).trim()
             val restLower = rest.lowercase()
 
-            // 1a. "unconditionally start timer <név>" / "unconditionally stop timer <név>"
+            // 1a. "unconditionally invoke <címke> rules" / "unconditionally focus on <címke>"
+            if (restLower.startsWith("invoke") || restLower.startsWith("focus on") || restLower.startsWith("focuse on")) {
+                var labelPart = if (restLower.startsWith("invoke")) {
+                    rest.substring(6).trim()
+                } else if (restLower.startsWith("focus on")) {
+                    rest.substring(8).trim()
+                } else {
+                    rest.substring(9).trim()
+                }
+                if (labelPart.lowercase().endsWith("rules")) {
+                    labelPart = labelPart.substring(0, labelPart.length - 5).trim()
+                }
+                if (labelPart.isEmpty()) {
+                    throw IllegalArgumentException("Meg kell adni a meghívandó címkét! Pl.: unconditionally invoke Klíma rules")
+                }
+                return Rule(
+                    id = id,
+                    name = name,
+                    label = defaultLabel,
+                    conditionExpression = "true",
+                    focusLabel = labelPart,
+                    isUnconditional = true,
+                    mayCauseChaining = mayCauseChaining,
+                    referencedVariables = emptyList()
+                )
+            }
+
+            // 1b. "unconditionally start timer <név>" / "unconditionally stop timer <név>"
             if (restLower.startsWith("start timer") || restLower.startsWith("stop timer") ||
                 restLower.startsWith("start") || restLower.startsWith("stop")
             ) {
@@ -172,7 +200,7 @@ object RuleParser {
                 )
             }
 
-            // 1b. "unconditionally conclude that x1 = 10 + y"
+            // 1c. "unconditionally conclude that x1 = 10 + y"
             if (restLower.startsWith("conclude that")) {
                 rest = rest.substring(13).trim()
             } else if (restLower.startsWith("conclude")) {
@@ -211,7 +239,7 @@ object RuleParser {
         // 2. Feltételes szabály "if...then..."
         val ifIndex = lower.indexOf("if")
         if (ifIndex == -1) {
-            throw IllegalArgumentException("A szabálynak 'if...then...', 'if...focus on', 'if...start/stop timer' vagy 'unconditionally...' formátumúnak kell lennie!")
+            throw IllegalArgumentException("A szabálynak 'if...then...', 'if...invoke...', 'if...start/stop timer' vagy 'unconditionally...' formátumúnak kell lennie!")
         }
 
         val thenIndex = lower.indexOf("then", ifIndex + 2)
@@ -229,7 +257,36 @@ object RuleParser {
         val afterThen = trimmed.substring(thenIndex + 4).trim()
         val afterThenLower = afterThen.lowercase()
 
-        // 2a. "start timer <időzítő_név>" / "stop timer <időzítő_név>"
+        // 2a. "invoke <címke> rules" / "focus on <címke>"
+        if (afterThenLower.startsWith("invoke") || afterThenLower.startsWith("focus on") || afterThenLower.startsWith("focuse on")) {
+            var labelPart = if (afterThenLower.startsWith("invoke")) {
+                afterThen.substring(6).trim()
+            } else if (afterThenLower.startsWith("focus on")) {
+                afterThen.substring(8).trim()
+            } else {
+                afterThen.substring(9).trim()
+            }
+            if (labelPart.lowercase().endsWith("rules")) {
+                labelPart = labelPart.substring(0, labelPart.length - 5).trim()
+            }
+            if (labelPart.isEmpty()) {
+                throw IllegalArgumentException("Meg kell adni a meghívandó címkét! Pl.: invoke Klíma rules")
+            }
+            return Rule(
+                id = id,
+                name = name,
+                label = defaultLabel,
+                conditionExpression = condition,
+                targetVariable = "",
+                valueExpression = "",
+                focusLabel = labelPart,
+                isUnconditional = false,
+                mayCauseChaining = mayCauseChaining,
+                referencedVariables = refVars
+            )
+        }
+
+        // 2b. "start timer <időzítő_név>" / "stop timer <időzítő_név>"
         if (afterThenLower.startsWith("start timer") || afterThenLower.startsWith("stop timer") ||
             afterThenLower.startsWith("start") || afterThenLower.startsWith("stop")
         ) {
@@ -250,26 +307,6 @@ object RuleParser {
                 conditionExpression = condition,
                 timerAction = action,
                 timerName = tName,
-                isUnconditional = false,
-                mayCauseChaining = mayCauseChaining,
-                referencedVariables = refVars
-            )
-        }
-
-        // 2b. "focus on <címke>"
-        if (afterThenLower.startsWith("focus on") || afterThenLower.startsWith("focuse on")) {
-            val focusTarget = afterThen.substring(afterThen.indexOf("on", ignoreCase = true) + 2).trim()
-            if (focusTarget.isEmpty()) {
-                throw IllegalArgumentException("A 'focus on' után meg kell adni a fókuszálandó címkét! Pl.: focus on Klíma")
-            }
-            return Rule(
-                id = id,
-                name = name,
-                label = defaultLabel,
-                conditionExpression = condition,
-                targetVariable = "",
-                valueExpression = "",
-                focusLabel = focusTarget,
                 isUnconditional = false,
                 mayCauseChaining = mayCauseChaining,
                 referencedVariables = refVars

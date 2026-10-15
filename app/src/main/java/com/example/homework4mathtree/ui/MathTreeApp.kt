@@ -494,7 +494,7 @@ fun MathTreeApp(
                                             )
                                             SuggestionChip(
                                                 onClick = {},
-                                                label = { Text("focus on ${timer.targetLabel}", fontSize = 11.sp) }
+                                                label = { Text("invoke ${timer.targetLabel} rules", fontSize = 11.sp) }
                                             )
                                         }
                                         Text(
@@ -943,6 +943,10 @@ fun MathTreeApp(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         SuggestionChip(
+                            onClick = { ruleTextInput = "if isHot == true then invoke Klíma rules" },
+                            label = { Text("invoke Klíma rules minta", fontSize = 11.sp) }
+                        )
+                        SuggestionChip(
                             onClick = { ruleTextInput = "if temp > 25 then start timer Klíma Időzítő" },
                             label = { Text("start timer minta", fontSize = 11.sp) }
                         )
@@ -984,10 +988,11 @@ fun MathTreeApp(
                         listOf(
                             "if ",
                             "then conclude that ",
-                            "then focus on ",
+                            "then invoke ",
                             "then start timer ",
                             "then stop timer ",
                             "unconditionally conclude that ",
+                            "unconditionally invoke ",
                             "unconditionally start timer ",
                             "unconditionally stop timer ",
                             "and ",
