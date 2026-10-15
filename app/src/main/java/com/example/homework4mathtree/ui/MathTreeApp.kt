@@ -382,7 +382,7 @@ fun MathTreeApp(
                                                 val statusText = when {
                                                     rule.isTimerActionRule -> "✅ Feltétel: IGAZ -> Időzítő ${if (rule.timerAction.equals("start", ignoreCase = true)) "elindítva" else "leállítva"}: ${rule.timerName}"
                                                     rule.isUnconditional -> "✅ Feltétel nélküli értékadás -> ${rule.targetVariable} = ${r.assignedValue?.toDisplayString()}"
-                                                    rule.isFocusRule -> "✅ Feltétel: IGAZ -> Fókuszált címke: ${rule.focusLabel}"
+                                                    rule.isFocusRule -> "✅ Feltétel: IGAZ -> Meghívott címke: ${rule.focusLabel}"
                                                     else -> "✅ Feltétel: IGAZ -> Beállítva: ${rule.targetVariable} = ${r.assignedValue?.toDisplayString()}"
                                                 }
                                                 Text(
