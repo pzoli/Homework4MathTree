@@ -1,6 +1,6 @@
-package com.example.homework4mathtree.model
+package hu.infokristaly.homework4mathtree.model
 
-import com.example.homework4mathtree.parser.MathExpressionParser
+import hu.infokristaly.homework4mathtree.parser.MathExpressionParser
 import java.util.UUID
 
 /**

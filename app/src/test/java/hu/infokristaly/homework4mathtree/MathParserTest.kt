@@ -1,7 +1,8 @@
-package com.example.homework4mathtree
+package hu.infokristaly.homework4mathtree
 
-import com.example.homework4mathtree.model.*
-import com.example.homework4mathtree.parser.MathExpressionParser
+import hu.infokristaly.homework4mathtree.model.*
+import hu.infokristaly.homework4mathtree.parser.MathExpressionParser
+import hu.infokristaly.homework4mathtree.parser.UserFunction
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -125,8 +126,8 @@ class MathParserTest {
     @Test
     fun testUserFunctionsAndNesting() {
         val funcs = mapOf(
-            "függvény1" to com.example.homework4mathtree.parser.UserFunction("függvény1", listOf("x"), "2 * x"),
-            "függvény2" to com.example.homework4mathtree.parser.UserFunction("függvény2", listOf("b"), "b ^ 2")
+            "függvény1" to UserFunction("függvény1", listOf("x"), "2 * x"),
+            "függvény2" to UserFunction("függvény2", listOf("b"), "b ^ 2")
         )
         val vars = mapOf("a" to Value.Number(1.0), "b" to Value.Number(3.0))
 
@@ -213,7 +214,7 @@ class MathParserTest {
         val tree = parser.parse(
             input = "Fizika.f1(10 * a + 2 * Fizika.f2(b))",
             variables = mapOf("a" to Value.Number(1.0), "b" to Value.Number(3.0)),
-            userFunctions = mapOf("függvény1" to com.example.homework4mathtree.parser.UserFunction("függvény1", listOf("x"), "2 * x")),
+            userFunctions = mapOf("függvény1" to UserFunction("függvény1", listOf("x"), "2 * x")),
             simulation = sim
         )
 

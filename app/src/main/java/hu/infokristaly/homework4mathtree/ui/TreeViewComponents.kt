@@ -1,4 +1,4 @@
-package com.example.homework4mathtree.ui
+package hu.infokristaly.homework4mathtree.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
@@ -23,7 +23,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.homework4mathtree.model.*
+import hu.infokristaly.homework4mathtree.model.*
 
 /**
  * Fa nézet komponens, amely rekurzívan jeleníti meg a MathNode struktúrát kártyák formájában.

@@ -1,4 +1,4 @@
-package com.example.homework4mathtree.ui.theme
+package hu.infokristaly.homework4mathtree.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle

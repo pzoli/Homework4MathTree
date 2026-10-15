@@ -1,4 +1,4 @@
-package com.example.homework4mathtree
+package hu.infokristaly.homework4mathtree
 
 import org.junit.Test
 

@@ -1,4 +1,4 @@
-package com.example.homework4mathtree.ui.theme
+package hu.infokristaly.homework4mathtree.ui.theme
 
 import android.app.Activity
 import android.os.Build

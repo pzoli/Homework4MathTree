@@ -1,4 +1,4 @@
-package com.example.homework4mathtree.model
+package hu.infokristaly.homework4mathtree.model
 
 import java.util.Locale
 import kotlin.math.abs

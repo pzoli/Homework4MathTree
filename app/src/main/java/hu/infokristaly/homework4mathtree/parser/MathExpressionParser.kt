@@ -1,6 +1,6 @@
-package com.example.homework4mathtree.parser
+package hu.infokristaly.homework4mathtree.parser
 
-import com.example.homework4mathtree.model.*
+import hu.infokristaly.homework4mathtree.model.*
 
 /**
  * Felhasználó által definiált elnevezett kifejezés vagy függvény.

@@ -1,4 +1,4 @@
-package com.example.homework4mathtree.ui
+package hu.infokristaly.homework4mathtree.ui
 
 import android.app.Application
 import androidx.compose.runtime.getValue
@@ -7,15 +7,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.homework4mathtree.model.MathNode
-import com.example.homework4mathtree.model.Rule
-import com.example.homework4mathtree.model.Simulation
-import com.example.homework4mathtree.model.Timer
-import com.example.homework4mathtree.model.UserFunctionData
-import com.example.homework4mathtree.model.Value
-import com.example.homework4mathtree.model.Workspace
-import com.example.homework4mathtree.parser.MathExpressionParser
-import com.example.homework4mathtree.parser.UserFunction
+import hu.infokristaly.homework4mathtree.model.MathNode
+import hu.infokristaly.homework4mathtree.model.Rule
+import hu.infokristaly.homework4mathtree.model.Simulation
+import hu.infokristaly.homework4mathtree.model.Timer
+import hu.infokristaly.homework4mathtree.model.UserFunctionData
+import hu.infokristaly.homework4mathtree.model.Value
+import hu.infokristaly.homework4mathtree.model.Workspace
+import hu.infokristaly.homework4mathtree.parser.MathExpressionParser
+import hu.infokristaly.homework4mathtree.parser.UserFunction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay

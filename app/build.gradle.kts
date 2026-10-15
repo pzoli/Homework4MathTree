@@ -4,13 +4,13 @@ plugins {
 }
 
 android {
-    namespace = "com.example.homework4mathtree"
+    namespace = "hu.infokristaly.homework4mathtree"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.example.homework4mathtree"
+        applicationId = "hu.infokristaly.homework4mathtree"
         minSdk = 31
         targetSdk = 37
         versionCode = 1

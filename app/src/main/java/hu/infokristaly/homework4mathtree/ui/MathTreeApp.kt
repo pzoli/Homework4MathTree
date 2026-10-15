@@ -1,4 +1,4 @@
-package com.example.homework4mathtree.ui
+package hu.infokristaly.homework4mathtree.ui
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -28,9 +28,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.homework4mathtree.model.RuleParser
-import com.example.homework4mathtree.model.Timer
-import com.example.homework4mathtree.model.UserFunctionData
+import hu.infokristaly.homework4mathtree.model.RuleParser
+import hu.infokristaly.homework4mathtree.model.Timer
+import hu.infokristaly.homework4mathtree.model.UserFunctionData
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
