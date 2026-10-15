@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -18,6 +19,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -715,14 +717,13 @@ fun MathTreeApp(
                                     fontSize = 16.sp
                                 )
 
-                                OutlinedTextField(
-                                    value = varValStr,
-                                    onValueChange = { newVal ->
+                                VariableValueInputField(
+                                    varName = varName,
+                                    initialValue = varValStr,
+                                    onValueCommit = { newVal ->
                                         viewModel.updateVariableInput(varName, newVal)
                                     },
-                                    modifier = Modifier.weight(1f),
-                                    singleLine = true,
-                                    placeholder = { Text("Érték (szám vagy szöveg)") }
+                                    modifier = Modifier.weight(1f)
                                 )
 
                                 IconButton(
@@ -1245,4 +1246,37 @@ fun MathTreeApp(
             }
         )
     }
+}
+
+/**
+ * Változó értékét szerkesztő mező, amely KIZÁRÓLAG a fókusz elvesztésekor (vagy az Enter/Done gombra)
+ * lépteti életbe a módosítást és indítja el a szabályok kiértékelését.
+ */
+@Composable
+private fun VariableValueInputField(
+    varName: String,
+    initialValue: String,
+    onValueCommit: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var textState by remember(varName, initialValue) { mutableStateOf(initialValue) }
+
+    OutlinedTextField(
+        value = textState,
+        onValueChange = { textState = it },
+        modifier = modifier.onFocusChanged { focusState ->
+            if (!focusState.isFocused && textState != initialValue) {
+                onValueCommit(textState)
+            }
+        },
+        singleLine = true,
+        placeholder = { Text("Érték (szám vagy szöveg)") },
+        keyboardActions = KeyboardActions(
+            onDone = {
+                if (textState != initialValue) {
+                    onValueCommit(textState)
+                }
+            }
+        )
+    )
 }
