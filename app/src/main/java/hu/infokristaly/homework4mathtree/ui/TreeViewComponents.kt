@@ -26,11 +26,11 @@ import androidx.compose.ui.unit.sp
 import hu.infokristaly.homework4mathtree.model.*
 
 /**
- * Fa nézet komponens, amely rekurzívan jeleníti meg a MathNode struktúrát kártyák formájában.
+ * Fa nézet komponens, amely rekurzívan jeleníti meg az ExpressionNode struktúrát kártyák formájában.
  */
 @Composable
 fun HierarchicalTreeView(
-    node: MathNode,
+    node: ExpressionNode,
     modifier: Modifier = Modifier,
     branchLabel: String? = "Gyökér művelet (Root)",
     depth: Int = 0
@@ -134,29 +134,47 @@ fun HierarchicalTreeView(
                 }
             }
 
-            // Gyermek ágak (Bal és Jobb oldal)
+            // Gyermek ágak
             AnimatedVisibility(visible = isExpanded && !node.isLeaf) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(start = 16.dp, top = 8.dp)
                 ) {
-                    // Bal oldali ág
-                    node.left?.let { leftChild ->
-                        HierarchicalTreeView(
-                            node = leftChild,
-                            branchLabel = "Bal ág (Left)",
-                            depth = depth + 1
-                        )
-                    }
-
-                    // Jobb oldali ág
-                    node.right?.let { rightChild ->
-                        HierarchicalTreeView(
-                            node = rightChild,
-                            branchLabel = "Jobb ág (Right)",
-                            depth = depth + 1
-                        )
+                    when (node) {
+                        is BinaryOperationNode -> {
+                            HierarchicalTreeView(
+                                node = node.left,
+                                branchLabel = "Bal ág (Left)",
+                                depth = depth + 1
+                            )
+                            HierarchicalTreeView(
+                                node = node.right,
+                                branchLabel = "Jobb ág (Right)",
+                                depth = depth + 1
+                            )
+                        }
+                        is UnaryOperationNode -> {
+                            HierarchicalTreeView(
+                                node = node.operand,
+                                branchLabel = "Operandus (Operand)",
+                                depth = depth + 1
+                            )
+                        }
+                        is FunctionCallNode -> {
+                            node.argumentNodes.forEachIndexed { idx, arg ->
+                                HierarchicalTreeView(
+                                    node = arg,
+                                    branchLabel = "Paraméter ${idx + 1}",
+                                    depth = depth + 1
+                                )
+                            }
+                            HierarchicalTreeView(
+                                node = node.functionBodyTree,
+                                branchLabel = "Függvény törzs",
+                                depth = depth + 1
+                            )
+                        }
                     }
                 }
             }
@@ -169,7 +187,7 @@ fun HierarchicalTreeView(
  */
 @Composable
 fun GraphicalTreeView(
-    rootNode: MathNode,
+    rootNode: ExpressionNode,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -215,7 +233,7 @@ fun GraphicalTreeView(
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeAndConnections(
-    node: MathNode,
+    node: ExpressionNode,
     x: Float,
     y: Float,
     xOffset: Float,
@@ -224,44 +242,99 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeAndConnecti
 ) {
     val color = getNodeColor(node)
 
-    // Bal oldali gyermek vonal
-    node.left?.let { leftChild ->
-        val childX = x - xOffset
-        val childY = y + levelHeight
-        drawLine(
-            color = Color.LightGray,
-            start = Offset(x, y),
-            end = Offset(childX, childY),
-            strokeWidth = 4f
-        )
-        drawNodeAndConnections(
-            node = leftChild,
-            x = childX,
-            y = childY,
-            xOffset = (xOffset / 2f).coerceAtLeast(40f),
-            levelHeight = levelHeight,
-            nodeRadius = nodeRadius
-        )
-    }
+    when (node) {
+        is BinaryOperationNode -> {
+            val childLeftX = x - xOffset
+            val childLeftY = y + levelHeight
+            drawLine(
+                color = Color.LightGray,
+                start = Offset(x, y),
+                end = Offset(childLeftX, childLeftY),
+                strokeWidth = 4f
+            )
+            drawNodeAndConnections(
+                node = node.left,
+                x = childLeftX,
+                y = childLeftY,
+                xOffset = (xOffset / 2f).coerceAtLeast(40f),
+                levelHeight = levelHeight,
+                nodeRadius = nodeRadius
+            )
 
-    // Jobb oldali gyermek vonal
-    node.right?.let { rightChild ->
-        val childX = x + xOffset
-        val childY = y + levelHeight
-        drawLine(
-            color = Color.LightGray,
-            start = Offset(x, y),
-            end = Offset(childX, childY),
-            strokeWidth = 4f
-        )
-        drawNodeAndConnections(
-            node = rightChild,
-            x = childX,
-            y = childY,
-            xOffset = (xOffset / 2f).coerceAtLeast(40f),
-            levelHeight = levelHeight,
-            nodeRadius = nodeRadius
-        )
+            val childRightX = x + xOffset
+            val childRightY = y + levelHeight
+            drawLine(
+                color = Color.LightGray,
+                start = Offset(x, y),
+                end = Offset(childRightX, childRightY),
+                strokeWidth = 4f
+            )
+            drawNodeAndConnections(
+                node = node.right,
+                x = childRightX,
+                y = childRightY,
+                xOffset = (xOffset / 2f).coerceAtLeast(40f),
+                levelHeight = levelHeight,
+                nodeRadius = nodeRadius
+            )
+        }
+        is UnaryOperationNode -> {
+            val childY = y + levelHeight
+            drawLine(
+                color = Color.LightGray,
+                start = Offset(x, y),
+                end = Offset(x, childY),
+                strokeWidth = 4f
+            )
+            drawNodeAndConnections(
+                node = node.operand,
+                x = x,
+                y = childY,
+                xOffset = xOffset,
+                levelHeight = levelHeight,
+                nodeRadius = nodeRadius
+            )
+        }
+        is FunctionCallNode -> {
+            if (node.argumentNodes.isNotEmpty()) {
+                val totalArgs = node.argumentNodes.size
+                node.argumentNodes.forEachIndexed { idx, arg ->
+                    val argX = x + (idx - (totalArgs - 1) / 2f) * xOffset
+                    val argY = y + levelHeight
+                    drawLine(
+                        color = Color.LightGray,
+                        start = Offset(x, y),
+                        end = Offset(argX, argY),
+                        strokeWidth = 4f
+                    )
+                    drawNodeAndConnections(
+                        node = arg,
+                        x = argX,
+                        y = argY,
+                        xOffset = (xOffset / 2f).coerceAtLeast(40f),
+                        levelHeight = levelHeight,
+                        nodeRadius = nodeRadius
+                    )
+                }
+            } else {
+                val childY = y + levelHeight
+                drawLine(
+                    color = Color.LightGray,
+                    start = Offset(x, y),
+                    end = Offset(x, childY),
+                    strokeWidth = 4f
+                )
+                drawNodeAndConnections(
+                    node = node.functionBodyTree,
+                    x = x,
+                    y = childY,
+                    xOffset = xOffset,
+                    levelHeight = levelHeight,
+                    nodeRadius = nodeRadius
+                )
+            }
+        }
+        else -> {}
     }
 
     // Csomópont kör berajzolása
@@ -291,14 +364,17 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNodeAndConnecti
     }
 }
 
-private fun getTreeDepth(node: MathNode?): Int {
+private fun getTreeDepth(node: ExpressionNode?): Int {
     if (node == null) return 0
-    val leftDepth = getTreeDepth(node.left)
-    val rightDepth = getTreeDepth(node.right)
-    return 1 + maxOf(leftDepth, rightDepth)
+    return when (node) {
+        is BinaryOperationNode -> 1 + maxOf(getTreeDepth(node.left), getTreeDepth(node.right))
+        is UnaryOperationNode -> 1 + getTreeDepth(node.operand)
+        is FunctionCallNode -> 1 + (node.argumentNodes.map { getTreeDepth(it) }.maxOrNull() ?: 0)
+        else -> 1
+    }
 }
 
-fun getNodeColor(node: MathNode): Color {
+fun getNodeColor(node: ExpressionNode): Color {
     return when (node) {
         is AdditionNode -> Color(0xFF2E7D32)            // Zöld
         is SubtractionNode -> Color(0xFFC62828)         // Piros

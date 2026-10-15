@@ -85,7 +85,7 @@ class MathParserTest {
         // 3 + -1 = 2, right node is NumberNode(-1.0)
         val tree2 = parser.parse("3 + -1")
         assertTrue(tree2 is AdditionNode)
-        val rightNode = tree2.right
+        val rightNode = (tree2 as AdditionNode).right
         assertTrue(rightNode is NumberNode)
         assertEquals(-1.0, (rightNode as NumberNode).numberValue, 0.0001)
         assertEquals(2.0, tree2.getValue().toDouble(), 0.0001)
@@ -112,7 +112,7 @@ class MathParserTest {
         val vars = mapOf("x" to Value.Number(10.0), "y" to Value.Number(2.0))
         val tree = parser.parse("x + 5 * y", vars)
         assertTrue(tree is AdditionNode)
-        val leftNode = tree.left
+        val leftNode = (tree as AdditionNode).left
         assertTrue(leftNode is VariableNode)
         assertEquals("x", (leftNode as VariableNode).name)
         assertEquals(10.0, leftNode.getValue().toDouble(), 0.0001)
@@ -396,5 +396,31 @@ class MathParserTest {
         val initRules = allRules.filter { it.label.equals("init", ignoreCase = true) }
         assertEquals(1, initRules.size)
         assertEquals("Feltétel nélküli szabály", initRules[0].name)
+    }
+
+    @Test
+    fun testExpressionNodeHierarchy() {
+        val num5 = NumberNode(5.0)
+        val num3 = NumberNode(3.0)
+
+        // Binary operation node
+        val addNode = AdditionNode(num5, num3)
+        assertTrue(addNode is BinaryOperationNode)
+        assertTrue(addNode is ExpressionNode)
+        assertEquals(num5, addNode.left)
+        assertEquals(num3, addNode.right)
+        assertFalse(addNode.isLeaf)
+
+        // Unary operation node
+        val boolNode = BooleanNode(false)
+        val notNode = NotNode(boolNode)
+        assertTrue(notNode is UnaryOperationNode)
+        assertTrue(notNode is ExpressionNode)
+        assertEquals(boolNode, notNode.operand)
+        assertFalse(notNode.isLeaf)
+
+        // Leaf nodes
+        assertTrue(num5.isLeaf)
+        assertTrue(boolNode.isLeaf)
     }
 }

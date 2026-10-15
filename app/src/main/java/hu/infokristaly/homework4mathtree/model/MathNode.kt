@@ -32,54 +32,46 @@ sealed class Value {
 }
 
 /**
- * Szülő osztály a matematikai kifejezésfához (Math Tree Node).
- * Ebben a szülő osztályban van deklarálva a getValue() metódus,
- * amit az egyes művelet és konstans osztályok megvalósítanak.
+ * Fő ősosztály a kifejezésfához (Expression Tree Node).
+ * Nyújtja a kiszámított getValue() metódust, a szimbólumot, leírást és a levelek azonosítását.
  */
-sealed class MathNode {
-    /**
-     * Visszaadja a művelet vagy konstans kiszámított értékét.
-     */
+abstract class ExpressionNode {
     abstract fun getValue(): Value
-
-    /**
-     * A művelet szimbóluma (pl. +, -, *, /, ^, √, vagy maga a szám/szöveg).
-     */
     abstract val symbol: String
-
-    /**
-     * A művelet leíró megnevezése magyarul.
-     */
     abstract val description: String
+    open val isLeaf: Boolean get() = false
+}
 
-    /**
-     * A bal oldali gyermek elem (ha van).
-     */
-    open val left: MathNode? get() = null
+/** Alias a visszamenőleges kompatibilitás érdekében */
+typealias MathNode = ExpressionNode
 
-    /**
-     * A jobb oldali gyermek elem (ha van).
-     */
-    open val right: MathNode? get() = null
-
-    /**
-     * Ellenőrzi, hogy a csomópont levele-e.
-     */
-    val isLeaf: Boolean get() = (left == null) && (right == null)
+/**
+ * Absztrakt ősosztály az egy-operandusú (Unáris) műveletekhez.
+ * Nem rendelkezik 'left' és 'right' mezőkkel, kizárólag egyetlen 'operand' kifejezéssel.
+ */
+abstract class UnaryOperationNode(
+    val operand: ExpressionNode
+) : ExpressionNode() {
+    override val isLeaf: Boolean get() = false
 }
 
 /**
- * Absztrakt szülő osztály a bináris műveleteknek.
+ * Absztrakt ősosztály a két-operandusú (Bináris) műveletekhez.
+ * Rendelkezik 'left' és 'right' gyermek kifejezésekkel.
  */
-abstract class OperationNode(
-    override val left: MathNode,
-    override val right: MathNode,
-) : MathNode()
+abstract class BinaryOperationNode(
+    val left: ExpressionNode,
+    val right: ExpressionNode
+) : ExpressionNode() {
+    override val isLeaf: Boolean get() = false
+}
 
-/**
- * Összeadás művelet (+)
- */
-class AdditionNode(left: MathNode, right: MathNode) : OperationNode(left, right) {
+/** Korábbi név-kompatibilitási alias */
+typealias OperationNode = BinaryOperationNode
+
+// ================= BINÁRIS MŰVELETEK =================
+
+class AdditionNode(left: ExpressionNode, right: ExpressionNode) : BinaryOperationNode(left, right) {
     override val symbol: String = "+"
     override val description: String = "Összeadás (+)"
     override fun getValue(): Value {
@@ -93,28 +85,19 @@ class AdditionNode(left: MathNode, right: MathNode) : OperationNode(left, right)
     }
 }
 
-/**
- * Kivonás művelet (-)
- */
-class SubtractionNode(left: MathNode, right: MathNode) : OperationNode(left, right) {
+class SubtractionNode(left: ExpressionNode, right: ExpressionNode) : BinaryOperationNode(left, right) {
     override val symbol: String = "-"
     override val description: String = "Kivonás (-)"
     override fun getValue(): Value = Value.Number(left.getValue().toDouble() - right.getValue().toDouble())
 }
 
-/**
- * Szorzás művelet (*)
- */
-class MultiplicationNode(left: MathNode, right: MathNode) : OperationNode(left, right) {
+class MultiplicationNode(left: ExpressionNode, right: ExpressionNode) : BinaryOperationNode(left, right) {
     override val symbol: String = "*"
     override val description: String = "Szorzás (*)"
     override fun getValue(): Value = Value.Number(left.getValue().toDouble() * right.getValue().toDouble())
 }
 
-/**
- * Osztás művelet (/)
- */
-class DivisionNode(left: MathNode, right: MathNode) : OperationNode(left, right) {
+class DivisionNode(left: ExpressionNode, right: ExpressionNode) : BinaryOperationNode(left, right) {
     override val symbol: String = "/"
     override val description: String = "Osztás (/)"
     override fun getValue(): Value {
@@ -126,19 +109,13 @@ class DivisionNode(left: MathNode, right: MathNode) : OperationNode(left, right)
     }
 }
 
-/**
- * Hatványozás művelet (^)
- */
-class ExponentiationNode(left: MathNode, right: MathNode) : OperationNode(left, right) {
+class ExponentiationNode(left: ExpressionNode, right: ExpressionNode) : BinaryOperationNode(left, right) {
     override val symbol: String = "^"
     override val description: String = "Hatványozás (^)"
     override fun getValue(): Value = Value.Number(left.getValue().toDouble().pow(right.getValue().toDouble()))
 }
 
-/**
- * Gyökvonás művelet (√ vagy root)
- */
-class RootNode(left: MathNode, right: MathNode) : OperationNode(left, right) {
+class RootNode(left: ExpressionNode, right: ExpressionNode) : BinaryOperationNode(left, right) {
     override val symbol: String = "√"
     override val description: String = "Gyökvonás (√)"
     override fun getValue(): Value {
@@ -156,7 +133,7 @@ class RootNode(left: MathNode, right: MathNode) : OperationNode(left, right) {
 
 // ================= LOGIKAI ÉS ÖSSZEHASONLÍTÓ MŰVELETEK =================
 
-class EqualNode(left: MathNode, right: MathNode) : OperationNode(left, right) {
+class EqualNode(left: ExpressionNode, right: ExpressionNode) : BinaryOperationNode(left, right) {
     override val symbol: String = "=="
     override val description: String = "Egyenlő (==)"
     override fun getValue(): Value {
@@ -171,7 +148,7 @@ class EqualNode(left: MathNode, right: MathNode) : OperationNode(left, right) {
     }
 }
 
-class NotEqualNode(left: MathNode, right: MathNode) : OperationNode(left, right) {
+class NotEqualNode(left: ExpressionNode, right: ExpressionNode) : BinaryOperationNode(left, right) {
     override val symbol: String = "!="
     override val description: String = "Nem egyenlő (!=)"
     override fun getValue(): Value {
@@ -180,7 +157,7 @@ class NotEqualNode(left: MathNode, right: MathNode) : OperationNode(left, right)
     }
 }
 
-class LessThanNode(left: MathNode, right: MathNode) : OperationNode(left, right) {
+class LessThanNode(left: ExpressionNode, right: ExpressionNode) : BinaryOperationNode(left, right) {
     override val symbol: String = "<"
     override val description: String = "Kisebb (<)"
     override fun getValue(): Value {
@@ -195,7 +172,7 @@ class LessThanNode(left: MathNode, right: MathNode) : OperationNode(left, right)
     }
 }
 
-class GreaterThanNode(left: MathNode, right: MathNode) : OperationNode(left, right) {
+class GreaterThanNode(left: ExpressionNode, right: ExpressionNode) : BinaryOperationNode(left, right) {
     override val symbol: String = ">"
     override val description: String = "Nagyobb (>)"
     override fun getValue(): Value {
@@ -210,7 +187,7 @@ class GreaterThanNode(left: MathNode, right: MathNode) : OperationNode(left, rig
     }
 }
 
-class LessOrEqualNode(left: MathNode, right: MathNode) : OperationNode(left, right) {
+class LessOrEqualNode(left: ExpressionNode, right: ExpressionNode) : BinaryOperationNode(left, right) {
     override val symbol: String = "<="
     override val description: String = "Kisebb vagy egyenlő (<=)"
     override fun getValue(): Value {
@@ -225,7 +202,7 @@ class LessOrEqualNode(left: MathNode, right: MathNode) : OperationNode(left, rig
     }
 }
 
-class GreaterOrEqualNode(left: MathNode, right: MathNode) : OperationNode(left, right) {
+class GreaterOrEqualNode(left: ExpressionNode, right: ExpressionNode) : BinaryOperationNode(left, right) {
     override val symbol: String = ">="
     override val description: String = "Nagyobb vagy egyenlő (>=)"
     override fun getValue(): Value {
@@ -240,89 +217,37 @@ class GreaterOrEqualNode(left: MathNode, right: MathNode) : OperationNode(left, 
     }
 }
 
-class AndNode(left: MathNode, right: MathNode) : OperationNode(left, right) {
+class AndNode(left: ExpressionNode, right: ExpressionNode) : BinaryOperationNode(left, right) {
     override val symbol: String = "and"
     override val description: String = "Logikai És (and/&&)"
     override fun getValue(): Value = Value.Bool(left.getValue().toBoolean() && right.getValue().toBoolean())
 }
 
-class OrNode(left: MathNode, right: MathNode) : OperationNode(left, right) {
+class OrNode(left: ExpressionNode, right: ExpressionNode) : BinaryOperationNode(left, right) {
     override val symbol: String = "or"
     override val description: String = "Logikai Vagy (or/||)"
     override fun getValue(): Value = Value.Bool(left.getValue().toBoolean() || right.getValue().toBoolean())
 }
 
-class NotNode(val operand: MathNode) : MathNode() {
+// ================= UNÁRIS MŰVELETEK =================
+
+class NotNode(operand: ExpressionNode) : UnaryOperationNode(operand) {
     override val symbol: String = "not"
     override val description: String = "Logikai Tagadás (not/!)"
-    override val left: MathNode get() = operand
-    override val right: MathNode? get() = null
     override fun getValue(): Value = Value.Bool(!operand.getValue().toBoolean())
 }
 
-// ================= LEVELEK (SZÁM, SZÖVEG, VÁLTOZÓ, FÜGGVÉNYHÍVÁS) =================
-
-class NumberNode(val numberValue: Double) : MathNode() {
-    override val symbol: String = if (numberValue % 1.0 == 0.0) {
-        numberValue.toLong().toString()
-    } else {
-        numberValue.toString()
-    }
-    override val description: String = "Konstans szám ($symbol)"
-    override fun getValue(): Value = Value.Number(numberValue)
-}
-
-class BooleanNode(val booleanValue: Boolean) : MathNode() {
-    override val symbol: String = if (booleanValue) "true" else "false"
-    override val description: String = if (booleanValue) "Konstans logikai érték (true / igaz)" else "Konstans logikai érték (false / hamis)"
-    override fun getValue(): Value = Value.Bool(booleanValue)
-}
-
-class StringNode(val stringValue: String) : MathNode() {
-    override val symbol: String = "\"$stringValue\""
-    override val description: String = "Konstans szöveg (\"$stringValue\")"
-    override fun getValue(): Value = Value.Text(stringValue)
-}
-
-class VariableNode(
-    val name: String,
-    val variableValue: Value,
-) : MathNode() {
-    override val symbol: String = name
-    override val description: String = "Változó ($name = \"${variableValue.toDisplayString()}\")"
-    override fun getValue(): Value = variableValue
-}
-
-class FunctionCallNode(
-    val functionName: String,
-    val argumentNodes: List<MathNode>,
-    val functionBodyTree: MathNode,
-) : MathNode() {
-    override val symbol: String = if (argumentNodes.isEmpty()) {
-        functionName
-    } else {
-        "$functionName(${argumentNodes.joinToString(", ") { it.symbol }})"
-    }
-    override val description: String = "Függvényhívás: $functionName"
-    override val left: MathNode? get() = argumentNodes.firstOrNull()
-    override val right: MathNode get() = functionBodyTree
-    override fun getValue(): Value = functionBodyTree.getValue()
-}
-
 abstract class TrigonometricNode(
-    val operand: MathNode,
+    operand: ExpressionNode,
     val isDegreeMode: Boolean = false,
-) : MathNode() {
-    override val left: MathNode get() = operand
-    override val right: MathNode? get() = null
-
+) : UnaryOperationNode(operand) {
     protected fun toRadians(angle: Double): Double {
         return if (isDegreeMode) Math.toRadians(angle) else angle
     }
 }
 
 class SinNode(
-    operand: MathNode,
+    operand: ExpressionNode,
     isDegreeMode: Boolean = false,
 ) : TrigonometricNode(operand, isDegreeMode) {
     override val symbol: String = "sin"
@@ -331,7 +256,7 @@ class SinNode(
 }
 
 class CosNode(
-    operand: MathNode,
+    operand: ExpressionNode,
     isDegreeMode: Boolean = false,
 ) : TrigonometricNode(operand, isDegreeMode) {
     override val symbol: String = "cos"
@@ -340,7 +265,7 @@ class CosNode(
 }
 
 class TanNode(
-    operand: MathNode,
+    operand: ExpressionNode,
     isDegreeMode: Boolean = false,
 ) : TrigonometricNode(operand, isDegreeMode) {
     override val symbol: String = "tan"
@@ -356,7 +281,7 @@ class TanNode(
 }
 
 class CotNode(
-    operand: MathNode,
+    operand: ExpressionNode,
     isDegreeMode: Boolean = false,
 ) : TrigonometricNode(operand, isDegreeMode) {
     override val symbol: String = "cot"
@@ -369,4 +294,55 @@ class CotNode(
         }
         return Value.Number(1.0 / kotlin.math.tan(rad))
     }
+}
+
+// ================= LEVELEK, VÁLTOZÓK ÉS FÜGGVÉNYHÍVÁSOK (KÖZVETLENÜL ExpressionNode) =================
+
+class NumberNode(val numberValue: Double) : ExpressionNode() {
+    override val isLeaf: Boolean get() = true
+    override val symbol: String = if (numberValue % 1.0 == 0.0) {
+        numberValue.toLong().toString()
+    } else {
+        numberValue.toString()
+    }
+    override val description: String = "Konstans szám ($symbol)"
+    override fun getValue(): Value = Value.Number(numberValue)
+}
+
+class BooleanNode(val booleanValue: Boolean) : ExpressionNode() {
+    override val isLeaf: Boolean get() = true
+    override val symbol: String = if (booleanValue) "true" else "false"
+    override val description: String = if (booleanValue) "Konstans logikai érték (true / igaz)" else "Konstans logikai érték (false / hamis)"
+    override fun getValue(): Value = Value.Bool(booleanValue)
+}
+
+class StringNode(val stringValue: String) : ExpressionNode() {
+    override val isLeaf: Boolean get() = true
+    override val symbol: String = "\"$stringValue\""
+    override val description: String = "Konstans szöveg (\"$stringValue\")"
+    override fun getValue(): Value = Value.Text(stringValue)
+}
+
+class VariableNode(
+    val name: String,
+    val variableValue: Value,
+) : ExpressionNode() {
+    override val isLeaf: Boolean get() = true
+    override val symbol: String = name
+    override val description: String = "Változó ($name = \"${variableValue.toDisplayString()}\")"
+    override fun getValue(): Value = variableValue
+}
+
+class FunctionCallNode(
+    val functionName: String,
+    val argumentNodes: List<ExpressionNode>,
+    val functionBodyTree: ExpressionNode,
+) : ExpressionNode() {
+    override val symbol: String = if (argumentNodes.isEmpty()) {
+        functionName
+    } else {
+        "$functionName(${argumentNodes.joinToString(", ") { it.symbol }})"
+    }
+    override val description: String = "Függvényhívás: $functionName"
+    override fun getValue(): Value = functionBodyTree.getValue()
 }
