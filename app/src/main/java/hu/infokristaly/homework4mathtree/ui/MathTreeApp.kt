@@ -53,6 +53,10 @@ fun MathTreeApp(
 
     val selectedRuleForTreeDialog = viewModel.selectedRuleForTreeDialog
     val selectedRuleConditionTree = viewModel.selectedRuleConditionTree
+
+    val selectedFunctionForTreeDialog = viewModel.selectedFunctionForTreeDialog
+    val selectedFunctionTree = viewModel.selectedFunctionTree
+
     val errorMessage = viewModel.errorMessage
 
     // Rendszer Fájl Választó: Mentés Fájlba (Export)
@@ -589,64 +593,75 @@ fun MathTreeApp(
                                     containerColor = MaterialTheme.colorScheme.surface
                                 )
                             ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Row(
+                                        modifier = Modifier.fillMaxWidth(),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        modifier = Modifier.weight(1f)
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Box(
-                                            contentAlignment = Alignment.Center,
-                                            modifier = Modifier
-                                                .size(36.dp)
-                                                .clip(CircleShape)
-                                                .background(Color(0xFF4A148C))
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            modifier = Modifier.weight(1f)
                                         ) {
-                                            Text(
-                                                text = "f",
-                                                color = Color.White,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 16.sp
-                                            )
+                                            Box(
+                                                contentAlignment = Alignment.Center,
+                                                modifier = Modifier
+                                                    .size(36.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFF4A148C))
+                                            ) {
+                                                Text(
+                                                    text = "f",
+                                                    color = Color.White,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 16.sp
+                                                )
+                                            }
+
+                                            Column {
+                                                val paramsStr = func.parameters.joinToString(", ")
+                                                val sig = if (paramsStr.isEmpty()) func.name else "${func.name}($paramsStr)"
+                                                Text(
+                                                    text = "$sig = ${func.expressionBody}",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 15.sp,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
                                         }
 
-                                        Column {
-                                            val paramsStr = func.parameters.joinToString(", ")
-                                            val sig = if (paramsStr.isEmpty()) func.name else "${func.name}($paramsStr)"
-                                            Text(
-                                                text = "$sig = ${func.expressionBody}",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 15.sp,
-                                                fontFamily = FontFamily.Monospace
-                                            )
+                                        Row {
+                                            IconButton(
+                                                onClick = {
+                                                    editingFuncIndex = index
+                                                    funcNameInput = func.name
+                                                    funcParamsInput = func.parameters.joinToString(", ")
+                                                    funcBodyInput = func.expressionBody
+                                                    showFuncDialog = true
+                                                }
+                                            ) {
+                                                Text("✏️", fontSize = 16.sp)
+                                            }
+                                            IconButton(
+                                                onClick = {
+                                                    viewModel.removeUserFunction(index)
+                                                }
+                                            ) {
+                                                Text("🗑️", fontSize = 16.sp)
+                                            }
                                         }
                                     }
 
-                                    Row {
-                                        IconButton(
-                                            onClick = {
-                                                editingFuncIndex = index
-                                                funcNameInput = func.name
-                                                funcParamsInput = func.parameters.joinToString(", ")
-                                                funcBodyInput = func.expressionBody
-                                                showFuncDialog = true
-                                            }
-                                        ) {
-                                            Text("✏️", fontSize = 16.sp)
-                                        }
-                                        IconButton(
-                                            onClick = {
-                                                viewModel.removeUserFunction(index)
-                                            }
-                                        ) {
-                                            Text("🗑️", fontSize = 16.sp)
-                                        }
+                                    OutlinedButton(
+                                        onClick = { viewModel.openFunctionTreeDialog(func) },
+                                        modifier = Modifier.align(Alignment.End),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text("🔍 Kifejezés Fájának Megtekintése", fontSize = 12.sp)
                                     }
                                 }
                             }
@@ -819,6 +834,74 @@ fun MathTreeApp(
             },
             confirmButton = {
                 Button(onClick = { viewModel.closeRuleConditionTreeDialog() }) {
+                    Text("Bezárás")
+                }
+            }
+        )
+    }
+
+    // POPUP DIALOG: Felhasználói Függvény Kifejezés Fájának Megtekintése
+    val dialogFunc = selectedFunctionForTreeDialog
+    val dialogFuncTree = selectedFunctionTree
+    if (dialogFunc != null && dialogFuncTree != null) {
+        var funcDialogTab by remember { mutableIntStateOf(0) }
+        val paramsStr = dialogFunc.parameters.joinToString(", ")
+        val sig = if (paramsStr.isEmpty()) dialogFunc.name else "${dialogFunc.name}($paramsStr)"
+
+        AlertDialog(
+            onDismissRequest = { viewModel.closeFunctionTreeDialog() },
+            title = {
+                Column {
+                    Text(text = "Függvény Kifejezés Fája: $sig", fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "$sig = ${dialogFunc.expressionBody}",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Kifejezés értéke: ${dialogFuncTree.getValue().toDisplayString()}",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+
+                    TabRow(selectedTabIndex = funcDialogTab) {
+                        Tab(
+                            selected = funcDialogTab == 0,
+                            onClick = { funcDialogTab = 0 },
+                            text = { Text("Hierarchikus Fa", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                        )
+                        Tab(
+                            selected = funcDialogTab == 1,
+                            onClick = { funcDialogTab = 1 },
+                            text = { Text("Grafikus Ábra", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(300.dp)
+                    ) {
+                        if (funcDialogTab == 0) {
+                            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                                HierarchicalTreeView(node = dialogFuncTree)
+                            }
+                        } else {
+                            GraphicalTreeView(rootNode = dialogFuncTree)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { viewModel.closeFunctionTreeDialog() }) {
                     Text("Bezárás")
                 }
             }

@@ -7,7 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import hu.infokristaly.homework4mathtree.model.MathNode
+import hu.infokristaly.homework4mathtree.model.ExpressionNode
 import hu.infokristaly.homework4mathtree.model.Rule
 import hu.infokristaly.homework4mathtree.model.Simulation
 import hu.infokristaly.homework4mathtree.model.Timer
@@ -63,7 +63,14 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
     var selectedRuleForTreeDialog by mutableStateOf<Rule?>(null)
         private set
 
-    var selectedRuleConditionTree by mutableStateOf<MathNode?>(null)
+    var selectedRuleConditionTree by mutableStateOf<ExpressionNode?>(null)
+        private set
+
+    // A párbeszédablakban megtekintett függvény kifejezés-fája
+    var selectedFunctionForTreeDialog by mutableStateOf<UserFunctionData?>(null)
+        private set
+
+    var selectedFunctionTree by mutableStateOf<ExpressionNode?>(null)
         private set
 
     var errorMessage by mutableStateOf<String?>(null)
@@ -314,6 +321,38 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
         selectedRuleConditionTree = null
     }
 
+    /**
+     * Megnyitja a megadott felhasználói függvény kifejezés-fájának megjelenítő párbeszédablakát.
+     */
+    fun openFunctionTreeDialog(function: UserFunctionData) {
+        selectedFunctionForTreeDialog = function
+        try {
+            val sampleVars = activeWorkspace.variables.mapValues { parseVariableValue(it.value) }.toMutableMap()
+            function.parameters.forEach { param ->
+                if (!sampleVars.containsKey(param)) {
+                    sampleVars[param] = Value.Number(1.0)
+                }
+            }
+            val userFuncMap = activeWorkspace.functions.associate {
+                it.name to UserFunction(it.name, it.parameters, it.expressionBody)
+            }
+            selectedFunctionTree = parser.parse(
+                input = function.expressionBody,
+                variables = sampleVars,
+                userFunctions = userFuncMap,
+                isDegreeMode = isDegreeMode,
+                simulation = simulation
+            )
+        } catch (_: Exception) {
+            selectedFunctionTree = null
+        }
+    }
+
+    fun closeFunctionTreeDialog() {
+        selectedFunctionForTreeDialog = null
+        selectedFunctionTree = null
+    }
+
     fun exportSimulationToJson(): String {
         return simulation.toJsonString()
     }
@@ -334,7 +373,7 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
     /**
      * Szabályok általános kiértékelése Aszinkron módon a Process Queue használatával.
      * Az 'unconditionally' (feltétel nélküli) szabályok kihagyásra kerülnek általános kiértékeléskor;
-     * csak akkor hajtódnak végre, ha kifejezetten rájuk fókuszál a szimuláció (focus on <címke>).
+     * csak akkor hajtódnak végre, ha kifejezetten rájuk fókuszál a szimuláció (invoke <címke> rules).
      */
     fun evaluateRules() {
         val conditionalRules = activeWorkspace.rules.filter { !it.isUnconditional }
