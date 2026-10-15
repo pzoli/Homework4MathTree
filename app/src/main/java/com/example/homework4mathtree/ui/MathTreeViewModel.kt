@@ -269,8 +269,10 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
             if (t.id == timerId) t.copy(isRunning = isRunning) else t
         }
         val currentWs = activeWorkspace.copy(timers = updatedTimers)
-        updateCurrentWorkspace(currentWs)
+        val updatedWorkspaces = simulation.workspaces + (currentWs.name to currentWs)
+        simulation = simulation.copy(workspaces = updatedWorkspaces)
         syncTimers()
+        autoSaveSimulation()
     }
 
     fun removeTimer(index: Int) {
