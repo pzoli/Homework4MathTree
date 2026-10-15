@@ -28,6 +28,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import hu.infokristaly.homework4mathtree.model.ClassDef
+import hu.infokristaly.homework4mathtree.model.ObjectInstance
 import hu.infokristaly.homework4mathtree.model.RuleParser
 import hu.infokristaly.homework4mathtree.model.Timer
 import hu.infokristaly.homework4mathtree.model.UserFunctionData
@@ -45,6 +47,8 @@ fun MathTreeApp(
     val userFunctionsList = viewModel.userFunctionsList
     val rulesList = viewModel.rulesList
     val timersList = viewModel.timersList
+    val classDefsList = viewModel.classDefsList
+    val objectsList = viewModel.objectsList
     val ruleResults = viewModel.ruleResults
     val availableLabels = rulesList.map { it.label }.distinct()
 
@@ -123,6 +127,21 @@ fun MathTreeApp(
     var timerNameInput by rememberSaveable { mutableStateOf("") }
     var timerTargetLabelInput by rememberSaveable { mutableStateOf("") }
     var timerIntervalSecInput by rememberSaveable { mutableStateOf("2") }
+
+    // ClassDef hozzáadása / szerkesztése dialog állapotok
+    var showClassDefDialog by rememberSaveable { mutableStateOf(false) }
+    var editingClassName by rememberSaveable { mutableStateOf<String?>(null) }
+    var cdNameInput by rememberSaveable { mutableStateOf("") }
+    var cdPropsState by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var newCdPropName by rememberSaveable { mutableStateOf("") }
+    var newCdPropType by rememberSaveable { mutableStateOf("StringNode") }
+
+    // ObjectInstance hozzáadása / szerkesztése dialog állapotok
+    var showObjectDialog by rememberSaveable { mutableStateOf(false) }
+    var editingObjectName by rememberSaveable { mutableStateOf<String?>(null) }
+    var objNameInput by rememberSaveable { mutableStateOf("") }
+    var objClassInput by rememberSaveable { mutableStateOf("") }
+    var objPropsState by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
 
     var ruleDialogTab by remember { mutableIntStateOf(0) }
 
@@ -359,7 +378,7 @@ fun MathTreeApp(
                                         }
                                     }
 
-                                    // Szabály egyetlen összefüggő szövegként: if...then...conclude that vagy if...then...focus on
+                                    // Szabály egyetlen összefüggő szövegként
                                     Text(
                                         text = rule.toRuleText(),
                                         fontFamily = FontFamily.Monospace,
@@ -420,6 +439,234 @@ fun MathTreeApp(
                                         shape = RoundedCornerShape(8.dp)
                                     ) {
                                         Text("🔍 Feltétel Fájának Megtekintése", fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Osztályok (ClassDef) Szekció
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Osztály Definíciók (ClassDef - ${activeWorkspace.name}):",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        TextButton(
+                            onClick = {
+                                editingClassName = null
+                                cdNameInput = "ÚjOsztály"
+                                cdPropsState = mapOf("szín" to "StringNode")
+                                newCdPropName = ""
+                                newCdPropType = "StringNode"
+                                showClassDefDialog = true
+                            }
+                        ) {
+                            Text("+ Új Osztály", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    if (classDefsList.isEmpty()) {
+                        Text(
+                            text = "Nincsenek osztály definíciók ezen a munkaterületen.",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        classDefsList.values.forEach { cd ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "📦 Osztály: ${cd.name}",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Row {
+                                            IconButton(
+                                                onClick = {
+                                                    editingClassName = cd.name
+                                                    cdNameInput = cd.name
+                                                    cdPropsState = cd.properties
+                                                    newCdPropName = ""
+                                                    newCdPropType = "StringNode"
+                                                    showClassDefDialog = true
+                                                }
+                                            ) {
+                                                Text("✏️", fontSize = 16.sp)
+                                            }
+                                            IconButton(
+                                                onClick = { viewModel.removeClassDef(cd.name) }
+                                            ) {
+                                                Text("🗑️", fontSize = 16.sp)
+                                            }
+                                        }
+                                    }
+
+                                    if (cd.properties.isEmpty()) {
+                                        Text("Nincsenek tulajdonságok megadva.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    } else {
+                                        cd.properties.forEach { (propName, propType) ->
+                                            Text(
+                                                text = "  • $propName : $propType",
+                                                fontSize = 13.sp,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Objektumok (ObjectInstance) Szekció
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.25f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Objektumok (Objects - ${activeWorkspace.name}):",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                        TextButton(
+                            onClick = {
+                                val defaultClass = classDefsList.keys.firstOrNull() ?: "Alma"
+                                editingObjectName = null
+                                objNameInput = "újObjektum"
+                                objClassInput = defaultClass
+                                val initialProps = classDefsList[defaultClass]?.properties?.mapValues { "" } ?: emptyMap()
+                                objPropsState = initialProps
+                                showObjectDialog = true
+                            }
+                        ) {
+                            Text("+ Új Objektum", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    if (objectsList.isEmpty()) {
+                        Text(
+                            text = "Nincsenek objektumok ezen a munkaterületen.",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        objectsList.values.forEach { obj ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Text(
+                                                text = "🍏 ${obj.name}",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 15.sp
+                                            )
+                                            SuggestionChip(
+                                                onClick = {},
+                                                label = { Text("Típus: ${obj.className}", fontSize = 11.sp) }
+                                            )
+                                        }
+
+                                        Row {
+                                            IconButton(
+                                                onClick = {
+                                                    editingObjectName = obj.name
+                                                    objNameInput = obj.name
+                                                    objClassInput = obj.className
+                                                    objPropsState = obj.properties
+                                                    showObjectDialog = true
+                                                }
+                                            ) {
+                                                Text("✏️", fontSize = 16.sp)
+                                            }
+                                            IconButton(
+                                                onClick = { viewModel.removeObject(obj.name) }
+                                            ) {
+                                                Text("🗑️", fontSize = 16.sp)
+                                            }
+                                        }
+                                    }
+
+                                    obj.properties.forEach { (propName, propVal) ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Text(
+                                                text = "  ${obj.name}.$propName =",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                            VariableValueInputField(
+                                                varName = "${obj.name}.$propName",
+                                                initialValue = propVal,
+                                                onValueCommit = { newVal ->
+                                                    viewModel.updateObjectProperty(obj.name, propName, newVal)
+                                                },
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -908,6 +1155,179 @@ fun MathTreeApp(
         )
     }
 
+    // Új / Szerkesztendő ClassDef (Osztály) párbeszédablak
+    if (showClassDefDialog) {
+        AlertDialog(
+            onDismissRequest = { showClassDefDialog = false },
+            title = {
+                Text(if (editingClassName == null) "Új Osztály (ClassDef)" else "Osztály szerkesztése")
+            },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedTextField(
+                        value = cdNameInput,
+                        onValueChange = { cdNameInput = it.trim() },
+                        label = { Text("Osztály neve (pl. Alma, Almafa)") },
+                        singleLine = true
+                    )
+
+                    Text(text = "Tulajdonságok (Mezők):", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+
+                    cdPropsState.forEach { (pName, pType) ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(text = "• $pName : $pType", fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+                            IconButton(onClick = { cdPropsState = cdPropsState - pName }) {
+                                Text("🗑️", fontSize = 14.sp)
+                            }
+                        }
+                    }
+
+                    HorizontalDivider()
+
+                    Text(text = "Új Mező Hozzáadása:", style = MaterialTheme.typography.labelSmall)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = newCdPropName,
+                            onValueChange = { newCdPropName = it.trim() },
+                            label = { Text("Mező neve") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = newCdPropType,
+                            onValueChange = { newCdPropType = it.trim() },
+                            label = { Text("Típus (pl. StringNode, Alma)") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        Button(
+                            onClick = {
+                                if (newCdPropName.isNotEmpty() && newCdPropType.isNotEmpty()) {
+                                    cdPropsState = cdPropsState + (newCdPropName to newCdPropType)
+                                    newCdPropName = ""
+                                }
+                            }
+                        ) {
+                            Text("+")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (cdNameInput.isNotEmpty()) {
+                            viewModel.addOrUpdateClassDef(
+                                ClassDef(name = cdNameInput, properties = cdPropsState)
+                            )
+                            showClassDefDialog = false
+                        }
+                    }
+                ) {
+                    Text("Mentés")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClassDefDialog = false }) {
+                    Text("Mégse")
+                }
+            }
+        )
+    }
+
+    // Új / Szerkesztendő ObjectInstance (Objektum) párbeszédablak
+    if (showObjectDialog) {
+        AlertDialog(
+            onDismissRequest = { showObjectDialog = false },
+            title = {
+                Text(if (editingObjectName == null) "Új Objektum (Object)" else "Objektum szerkesztése")
+            },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedTextField(
+                        value = objNameInput,
+                        onValueChange = { objNameInput = it.trim() },
+                        label = { Text("Objektum neve (pl. zöldAlma)") },
+                        singleLine = true
+                    )
+
+                    Text(text = "Osztály (ClassDef) Típusa:", style = MaterialTheme.typography.labelSmall)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        classDefsList.keys.forEach { cdName ->
+                            FilterChip(
+                                selected = objClassInput == cdName,
+                                onClick = {
+                                    objClassInput = cdName
+                                    if (editingObjectName == null) {
+                                        val newProps = classDefsList[cdName]?.properties?.mapValues { "" } ?: emptyMap()
+                                        objPropsState = newProps
+                                    }
+                                },
+                                label = { Text(cdName) }
+                            )
+                        }
+                    }
+
+                    Text(text = "Tulajdonság Értékek (Beállítás):", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+
+                    objPropsState.forEach { (pName, pVal) ->
+                        OutlinedTextField(
+                            value = pVal,
+                            onValueChange = { newV ->
+                                objPropsState = objPropsState + (pName to newV)
+                            },
+                            label = { Text("$pName érték") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (objNameInput.isNotEmpty() && objClassInput.isNotEmpty()) {
+                            viewModel.addOrUpdateObject(
+                                ObjectInstance(
+                                    name = objNameInput,
+                                    className = objClassInput,
+                                    properties = objPropsState
+                                )
+                            )
+                            showObjectDialog = false
+                        }
+                    }
+                ) {
+                    Text("Mentés")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showObjectDialog = false }) {
+                    Text("Mégse")
+                }
+            }
+        )
+    }
+
     // Új / Szerkesztendő Időzítő (Timer) párbeszédablak
     if (showTimerDialog) {
         AlertDialog(
@@ -1026,6 +1446,10 @@ fun MathTreeApp(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         SuggestionChip(
+                            onClick = { ruleTextInput = "if zöldAlma.szín == \"zöld\" then conclude that zöldAlma.szín = \"piros\"" },
+                            label = { Text("zöldAlma.szín minta", fontSize = 11.sp) }
+                        )
+                        SuggestionChip(
                             onClick = { ruleTextInput = "if isHot == true then invoke Klíma rules" },
                             label = { Text("invoke Klíma rules minta", fontSize = 11.sp) }
                         )
@@ -1041,10 +1465,6 @@ fun MathTreeApp(
                             onClick = { ruleTextInput = "if x1 <= 10 then conclude that x1 = x1 + 2" },
                             label = { Text("x1 = x1 + 2 (Chaining)", fontSize = 11.sp) }
                         )
-                        SuggestionChip(
-                            onClick = { ruleTextInput = "unconditionally conclude that x1 = 10 + y" },
-                            label = { Text("unconditionally minta", fontSize = 11.sp) }
-                        )
                     }
 
                     // EGYETLEN SZÖVEGBEVITELI MEZŐ A SZABÁLYNAK
@@ -1055,7 +1475,7 @@ fun MathTreeApp(
                             ruleDialogError = null
                         },
                         label = { Text("Szabály Szövege (if...then...)") },
-                        placeholder = { Text("pl.: if x1 <= 10 then conclude that x1 = x1 + 2") },
+                        placeholder = { Text("pl.: if zöldAlma.szín == \"zöld\" then conclude that zöldAlma.szín = \"piros\"") },
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 3,
                         maxLines = 5,
@@ -1066,6 +1486,10 @@ fun MathTreeApp(
                     val currentWorkspaceVars = variableInputs.keys.toList()
                     val currentWorkspaceFuncs = userFunctionsList.map { it.name }
                     val currentWorkspaceTimers = timersList.map { it.name }
+                    val currentWorkspaceObjects = objectsList.keys.toList()
+                    val currentWorkspaceObjectPaths = objectsList.values.flatMap { obj ->
+                        obj.properties.keys.map { prop -> "${obj.name}.$prop" }
+                    }
 
                     val allKeywordsAndTemplates = remember {
                         listOf(
@@ -1086,7 +1510,7 @@ fun MathTreeApp(
 
                     val lastWord = ruleTextInput.split(" ", "\n", "(").lastOrNull()?.trim() ?: ""
 
-                    val predictiveSuggestions: List<String> = remember(ruleTextInput, currentWorkspaceVars, currentWorkspaceFuncs, currentWorkspaceTimers, availableLabels) {
+                    val predictiveSuggestions: List<String> = remember(ruleTextInput, currentWorkspaceVars, currentWorkspaceFuncs, currentWorkspaceTimers, availableLabels, currentWorkspaceObjects, currentWorkspaceObjectPaths) {
                         if (lastWord.isEmpty()) {
                             emptyList()
                         } else {
@@ -1094,6 +1518,8 @@ fun MathTreeApp(
                                 allKeywordsAndTemplates +
                                 currentWorkspaceVars +
                                 currentWorkspaceFuncs +
+                                currentWorkspaceObjects +
+                                currentWorkspaceObjectPaths +
                                 currentWorkspaceTimers.map { "\"$it\"" } +
                                 availableLabels
                             ).distinct()

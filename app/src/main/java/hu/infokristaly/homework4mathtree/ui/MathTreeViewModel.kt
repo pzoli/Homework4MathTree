@@ -7,7 +7,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import hu.infokristaly.homework4mathtree.model.ClassDef
 import hu.infokristaly.homework4mathtree.model.ExpressionNode
+import hu.infokristaly.homework4mathtree.model.ObjectInstance
 import hu.infokristaly.homework4mathtree.model.Rule
 import hu.infokristaly.homework4mathtree.model.Simulation
 import hu.infokristaly.homework4mathtree.model.Timer
@@ -16,6 +18,7 @@ import hu.infokristaly.homework4mathtree.model.Value
 import hu.infokristaly.homework4mathtree.model.Workspace
 import hu.infokristaly.homework4mathtree.parser.MathExpressionParser
 import hu.infokristaly.homework4mathtree.parser.UserFunction
+import hu.infokristaly.homework4mathtree.parser.updateObjectPropertyPath
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -34,7 +37,8 @@ data class RuleResult(
 
 /**
  * ViewModel a Munkaterületeket (Workspaces) tároló Szimuláció (Simulation),
- * a Szabályok (Rules), Időzítők (Timers) és az aszinkron Process Queue kezelésére.
+ * a Szabályok (Rules), Időzítők (Timers), Osztályok (ClassDef), Objektumok (ObjectInstance)
+ * és az aszinkron Process Queue kezelésére.
  * Támogatja az automatikus fájlba mentést és visszaállítást alkalmazás indításakor.
  */
 class MathTreeViewModel(application: Application) : AndroidViewModel(application) {
@@ -94,6 +98,12 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
 
     val timersList: List<Timer>
         get() = activeWorkspace.timers
+
+    val classDefsList: Map<String, ClassDef>
+        get() = activeWorkspace.classDefs
+
+    val objectsList: Map<String, ObjectInstance>
+        get() = activeWorkspace.objects
 
     init {
         loadAutoSaveSimulation()
@@ -164,7 +174,9 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
                 variables = mapOf("x" to "10"),
                 functions = emptyList(),
                 rules = emptyList(),
-                timers = emptyList()
+                timers = emptyList(),
+                classDefs = emptyMap(),
+                objects = emptyMap()
             )
             val updatedMap = simulation.workspaces + (trimmed to newWs)
             simulation = simulation.copy(
@@ -292,6 +304,37 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
             updateCurrentWorkspace(currentWs)
             syncTimers()
         }
+    }
+
+    fun addOrUpdateClassDef(classDef: ClassDef) {
+        val updatedClassDefs = activeWorkspace.classDefs + (classDef.name to classDef)
+        val currentWs = activeWorkspace.copy(classDefs = updatedClassDefs)
+        updateCurrentWorkspace(currentWs)
+    }
+
+    fun removeClassDef(className: String) {
+        val updatedClassDefs = activeWorkspace.classDefs - className
+        val currentWs = activeWorkspace.copy(classDefs = updatedClassDefs)
+        updateCurrentWorkspace(currentWs)
+    }
+
+    fun addOrUpdateObject(objectInstance: ObjectInstance) {
+        val updatedObjects = activeWorkspace.objects + (objectInstance.name to objectInstance)
+        val currentWs = activeWorkspace.copy(objects = updatedObjects)
+        updateCurrentWorkspace(currentWs)
+    }
+
+    fun removeObject(objectName: String) {
+        val updatedObjects = activeWorkspace.objects - objectName
+        val currentWs = activeWorkspace.copy(objects = updatedObjects)
+        updateCurrentWorkspace(currentWs)
+    }
+
+    fun updateObjectProperty(objectName: String, propName: String, propValueStr: String) {
+        val targetObj = activeWorkspace.objects[objectName] ?: return
+        val updatedProps = targetObj.properties + (propName to propValueStr)
+        val updatedObj = targetObj.copy(properties = updatedProps)
+        addOrUpdateObject(updatedObj)
     }
 
     /**
@@ -460,21 +503,34 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
                             )
                             val assignedVal = valueNode.getValue()
                             val newDisplayStr = assignedVal.toDisplayString()
-                            val oldValue = updatedVars[currentRule.targetVariable]
 
-                            val valueChanged = oldValue != newDisplayStr
-                            updatedVars[currentRule.targetVariable] = newDisplayStr
-                            resultsMap[currentRule.id] = RuleResult(conditionMet = true, assignedValue = assignedVal)
-
-                            // Ha a változó értéke megváltozott ÉS a szabály engedélyezi a chaining-et:
-                            if (valueChanged && currentRule.mayCauseChaining) {
-                                val dependentRules = activeWorkspace.rules.filter { dependentRule ->
-                                    dependentRule.isActive &&
-                                        !dependentRule.isUnconditional &&
-                                        dependentRule.referencedVariables.contains(currentRule.targetVariable) &&
-                                        !queue.contains(dependentRule)
+                            if (currentRule.targetVariable.contains(".")) {
+                                withContext(Dispatchers.Main) {
+                                    val updatedSim = updateObjectPropertyPath(
+                                        path = currentRule.targetVariable,
+                                        newValueStr = newDisplayStr,
+                                        currentWorkspace = activeWorkspace,
+                                        simulation = simulation
+                                    )
+                                    simulation = updatedSim
                                 }
-                                queue.addAll(dependentRules)
+                                resultsMap[currentRule.id] = RuleResult(conditionMet = true, assignedValue = assignedVal)
+                            } else {
+                                val oldValue = updatedVars[currentRule.targetVariable]
+                                val valueChanged = oldValue != newDisplayStr
+                                updatedVars[currentRule.targetVariable] = newDisplayStr
+                                resultsMap[currentRule.id] = RuleResult(conditionMet = true, assignedValue = assignedVal)
+
+                                // Ha a változó értéke megváltozott ÉS a szabály engedélyezi a chaining-et:
+                                if (valueChanged && currentRule.mayCauseChaining) {
+                                    val dependentRules = activeWorkspace.rules.filter { dependentRule ->
+                                        dependentRule.isActive &&
+                                            !dependentRule.isUnconditional &&
+                                            dependentRule.referencedVariables.contains(currentRule.targetVariable) &&
+                                            !queue.contains(dependentRule)
+                                    }
+                                    queue.addAll(dependentRules)
+                                }
                             }
                         }
                     } else {

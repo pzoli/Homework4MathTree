@@ -4,6 +4,62 @@ import hu.infokristaly.homework4mathtree.parser.MathExpressionParser
 import java.util.UUID
 
 /**
+ * Osztály Definíció (ClassDef) adatmodell:
+ * Mezők neve és típusa (pl. "szín" -> "StringNode", "almák" -> "Alma").
+ */
+data class ClassDef(
+    val name: String,                            // Osztály neve (pl. "Alma", "Almafa")
+    val properties: Map<String, String> = emptyMap() // Mezőnév -> Típusnév (pl. "szín" -> "StringNode", "súly" -> "NumberNode", "almák" -> "Alma")
+) {
+    fun toJsonString(): String {
+        val propsStr = properties.entries.joinToString(",") { (k, v) ->
+            "\"${escapeJson(k)}\":\"${escapeJson(v)}\""
+        }
+        return "{\"name\":\"${escapeJson(name)}\",\"properties\":{$propsStr}}"
+    }
+
+    companion object {
+        fun fromMap(map: Map<String, Any?>): ClassDef {
+            val name = map["name"]?.toString() ?: "ClassDef"
+            val props = mutableMapOf<String, String>()
+            (map["properties"] as? Map<String, Any?>)?.forEach { (k, v) ->
+                props[k] = v?.toString() ?: "StringNode"
+            }
+            return ClassDef(name, props)
+        }
+    }
+}
+
+/**
+ * Objektum Példány (ObjectInstance) adatmodell:
+ * Egy ClassDef alapján létrejött példány a mezők konkrét értékeivel.
+ */
+data class ObjectInstance(
+    val name: String,                            // Objektum neve (pl. "zöldAlma", "zöldAlmafa")
+    val className: String,                       // Az Osztály (ClassDef) neve (pl. "Alma")
+    val properties: Map<String, String> = emptyMap() // Mezőnév -> Érték string (pl. "szín" -> "\"zöld\"", "súly" -> "150", "almák" -> "zöldAlma")
+) {
+    fun toJsonString(): String {
+        val propsStr = properties.entries.joinToString(",") { (k, v) ->
+            "\"${escapeJson(k)}\":\"${escapeJson(v)}\""
+        }
+        return "{\"name\":\"${escapeJson(name)}\",\"className\":\"${escapeJson(className)}\",\"properties\":{$propsStr}}"
+    }
+
+    companion object {
+        fun fromMap(map: Map<String, Any?>): ObjectInstance {
+            val name = map["name"]?.toString() ?: "Object"
+            val className = map["className"]?.toString() ?: "ClassDef"
+            val props = mutableMapOf<String, String>()
+            (map["properties"] as? Map<String, Any?>)?.forEach { (k, v) ->
+                props[k] = v?.toString() ?: ""
+            }
+            return ObjectInstance(name, className, props)
+        }
+    }
+}
+
+/**
  * Megnevezett Időzítő (Timer) osztály:
  * Meghatározott időközönként (intervalMillis) beteszi a megadott címkével (targetLabel) ellátott szabályokat a Process Queue-ba.
  */
@@ -362,14 +418,16 @@ data class UserFunctionData(
 
 /**
  * Egyedi névvel rendelkező Munkaterület (Workspace),
- * amely szabályokat (Rules), változókat, függvényeket és időzítőket (Timers) tárol.
+ * amely szabályokat (Rules), változókat, függvényeket, időzítőket (Timers), osztályokat (ClassDef) és objektumokat (ObjectInstance) tárol.
  */
 data class Workspace(
     val name: String,
     val variables: Map<String, String> = emptyMap(),
     val functions: List<UserFunctionData> = emptyList(),
     val rules: List<Rule> = emptyList(),
-    val timers: List<Timer> = emptyList()
+    val timers: List<Timer> = emptyList(),
+    val classDefs: Map<String, ClassDef> = emptyMap(),
+    val objects: Map<String, ObjectInstance> = emptyMap()
 ) {
     fun toJsonString(): String {
         val varsStr = variables.entries.joinToString(",") { (k, v) ->
@@ -381,7 +439,9 @@ data class Workspace(
         }
         val rulesStr = rules.joinToString(",") { it.toJsonString() }
         val timersStr = timers.joinToString(",") { it.toJsonString() }
-        return "{\"name\":\"${escapeJson(name)}\",\"variables\":{$varsStr},\"functions\":[$funcsStr],\"rules\":[$rulesStr],\"timers\":[$timersStr]}"
+        val classDefsStr = classDefs.values.joinToString(",") { it.toJsonString() }
+        val objectsStr = objects.values.joinToString(",") { it.toJsonString() }
+        return "{\"name\":\"${escapeJson(name)}\",\"variables\":{$varsStr},\"functions\":[$funcsStr],\"rules\":[$rulesStr],\"timers\":[$timersStr],\"classDefs\":[$classDefsStr],\"objects\":[$objectsStr]}"
     }
 
     companion object {
@@ -412,7 +472,19 @@ data class Workspace(
                 timersList.add(Timer.fromMap(tMap))
             }
 
-            return Workspace(name, varsMap, funcsList, rulesList, timersList)
+            val classDefsMap = mutableMapOf<String, ClassDef>()
+            (map["classDefs"] as? List<Map<String, Any?>>)?.forEach { cdMap ->
+                val cd = ClassDef.fromMap(cdMap)
+                classDefsMap[cd.name] = cd
+            }
+
+            val objectsMap = mutableMapOf<String, ObjectInstance>()
+            (map["objects"] as? List<Map<String, Any?>>)?.forEach { objMap ->
+                val obj = ObjectInstance.fromMap(objMap)
+                objectsMap[obj.name] = obj
+            }
+
+            return Workspace(name, varsMap, funcsList, rulesList, timersList, classDefsMap, objectsMap)
         }
     }
 }
@@ -486,6 +558,28 @@ data class Simulation(
                     targetLabel = "Klíma",
                     intervalMillis = 2000L,
                     isRunning = false
+                )
+            ),
+            classDefs = mapOf(
+                "Alma" to ClassDef(
+                    name = "Alma",
+                    properties = mapOf("szín" to "StringNode", "súly" to "NumberNode")
+                ),
+                "Almafa" to ClassDef(
+                    name = "Almafa",
+                    properties = mapOf("almák" to "Alma")
+                )
+            ),
+            objects = mapOf(
+                "zöldAlma" to ObjectInstance(
+                    name = "zöldAlma",
+                    className = "Alma",
+                    properties = mapOf("szín" to "\"zöld\"", "súly" to "150")
+                ),
+                "zöldAlmafa" to ObjectInstance(
+                    name = "zöldAlmafa",
+                    className = "Almafa",
+                    properties = mapOf("almák" to "zöldAlma")
                 )
             )
         ),

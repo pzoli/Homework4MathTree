@@ -423,4 +423,32 @@ class MathParserTest {
         assertTrue(num5.isLeaf)
         assertTrue(boolNode.isLeaf)
     }
+
+    @Test
+    fun testClassDefAndObjectPropertyPaths() {
+        val sim = Simulation()
+        val activeWs = sim.getActiveWorkspace()
+
+        // Test 1: Direct object property lookup (zöldAlma.szín -> "zöld")
+        val tree1 = parser.parse("zöldAlma.szín == \"zöld\"", simulation = sim)
+        assertEquals(Value.Bool(true), tree1.getValue())
+
+        // Test 2: Nested object property lookup (zöldAlmafa.almák.szín -> "zöld")
+        val tree2 = parser.parse("zöldAlmafa.almák.szín == \"zöld\"", simulation = sim)
+        assertEquals(Value.Bool(true), tree2.getValue())
+
+        // Test 3: Workspace dot notation lookup (Fő_Munkaterület.zöldAlmafa.almák.szín -> "zöld")
+        val tree3 = parser.parse("Fő_Munkaterület.zöldAlmafa.almák.szín == \"zöld\"", simulation = sim)
+        assertEquals(Value.Bool(true), tree3.getValue())
+
+        // Test 4: Object property assignment update
+        val updatedSim = hu.infokristaly.homework4mathtree.parser.updateObjectPropertyPath(
+            path = "zöldAlma.szín",
+            newValueStr = "\"piros\"",
+            currentWorkspace = activeWs,
+            simulation = sim
+        )
+        val tree4 = parser.parse("zöldAlma.szín", simulation = updatedSim)
+        assertEquals("piros", tree4.getValue().toDisplayString())
+    }
 }

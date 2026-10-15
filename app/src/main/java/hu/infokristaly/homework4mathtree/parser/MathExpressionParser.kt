@@ -40,12 +40,13 @@ sealed class Token {
 
 /**
  * Matematikai és logikai kifejezéseket kielemző és bináris kifejezésfát építő osztály.
- * Támogatja a Munkaterületek (Workspaces) közötti változó és függvény hivatkozásokat.
+ * Támogatja a Munkaterületek (Workspaces), Objektum tulajdonságok (zöldAlma.szín / Kert.zöldAlmafa.almák.szín)
+ * és Függvények közötti hivatkozásokat.
  */
 class MathExpressionParser {
 
     /**
-     * Szöveges kifejezést alakít bináris MathNode fa struktúrává.
+     * Szöveges kifejezést alakít bináris ExpressionNode fa struktúrává.
      */
     fun parse(
         input: String,
@@ -53,7 +54,7 @@ class MathExpressionParser {
         userFunctions: Map<String, UserFunction> = emptyMap(),
         isDegreeMode: Boolean = false,
         simulation: Simulation? = null
-    ): MathNode {
+    ): ExpressionNode {
         val trimmed = input.trim()
         if (trimmed.isEmpty()) {
             throw IllegalArgumentException("Kérjük, adjon meg egy kifejezést!")
@@ -71,7 +72,7 @@ class MathExpressionParser {
     }
 
     /**
-     * Kinyeri a kifejezésben található összes szabad változó nevét egyedi listaként.
+     * Kinyeri a kifejezésben található összes szabad változó és objektum tulajdonság nevét egyedi listaként.
      */
     fun extractVariables(
         input: String,
@@ -118,114 +119,75 @@ class MathExpressionParser {
                 c == '"' || c == '\'' -> {
                     val quote = c
                     i++
-                    val start = i
+                    val sb = StringBuilder()
                     while (i < len && input[i] != quote) {
+                        if (input[i] == '\\' && i + 1 < len) {
+                            i++
+                            sb.append(input[i])
+                        } else {
+                            sb.append(input[i])
+                        }
                         i++
                     }
-                    val strVal = input.substring(start, i)
                     if (i < len && input[i] == quote) {
                         i++
                     }
-                    tokens.add(Token.StringLiteral(strVal))
-                }
-                c == '=' -> {
-                    if (i + 1 < len && input[i + 1] == '=') {
-                        i += 2
-                    } else {
-                        i++
-                    }
-                    tokens.add(Token.Equal)
-                }
-                c == '!' -> {
-                    if (i + 1 < len && input[i + 1] == '=') {
-                        i += 2
-                        tokens.add(Token.NotEqual)
-                    } else {
-                        i++
-                        tokens.add(Token.Not)
-                    }
-                }
-                c == '<' -> {
-                    if (i + 1 < len && input[i + 1] == '=') {
-                        i += 2
-                        tokens.add(Token.LessOrEqual)
-                    } else {
-                        i++
-                        tokens.add(Token.LessThan)
-                    }
-                }
-                c == '>' -> {
-                    if (i + 1 < len && input[i + 1] == '=') {
-                        i += 2
-                        tokens.add(Token.GreaterOrEqual)
-                    } else {
-                        i++
-                        tokens.add(Token.GreaterThan)
-                    }
-                }
-                c == '&' -> {
-                    if (i + 1 < len && input[i + 1] == '&') {
-                        i += 2
-                    } else {
-                        i++
-                    }
-                    tokens.add(Token.And)
-                }
-                c == '|' -> {
-                    if (i + 1 < len && input[i + 1] == '|') {
-                        i += 2
-                    } else {
-                        i++
-                    }
-                    tokens.add(Token.Or)
+                    tokens.add(Token.StringLiteral(sb.toString()))
                 }
                 c == '+' -> {
                     tokens.add(Token.Plus)
                     i++
                 }
                 c == '-' -> {
-                    val lastToken = tokens.lastOrNull()
-                    val isUnary = lastToken == null || (
-                        lastToken !is Token.Number &&
-                        lastToken !is Token.Variable &&
-                        lastToken !is Token.StringLiteral &&
-                        lastToken !is Token.RParen
-                    )
-                    if (isUnary && i + 1 < len && (input[i + 1].isDigit() || input[i + 1] == '.')) {
-                        val start = i
-                        i++ // Skip '-'
-                        var hasDot = input[i] == '.'
-                        i++
-                        while (i < len) {
-                            val ch = input[i]
-                            if (ch.isDigit()) {
-                                i++
-                            } else if (ch == '.' && !hasDot) {
-                                hasDot = true
-                                i++
-                            } else {
-                                break
-                            }
-                        }
-                        val numStr = input.substring(start, i)
-                        val value = numStr.toDoubleOrNull()
-                            ?: throw IllegalArgumentException("Érvénytelen szám: $numStr")
-                        tokens.add(Token.Number(value))
-                    } else {
-                        tokens.add(Token.Minus)
-                        i++
-                    }
+                    tokens.add(Token.Minus)
+                    i++
                 }
                 c == '*' -> {
                     tokens.add(Token.Multiply)
                     i++
                 }
-                c == '/' || c == ':' -> {
+                c == '/' -> {
                     tokens.add(Token.Divide)
                     i++
                 }
                 c == '^' -> {
                     tokens.add(Token.Power)
+                    i++
+                }
+                c == '=' && i + 1 < len && input[i + 1] == '=' -> {
+                    tokens.add(Token.Equal)
+                    i += 2
+                }
+                c == '!' && i + 1 < len && input[i + 1] == '=' -> {
+                    tokens.add(Token.NotEqual)
+                    i += 2
+                }
+                c == '<' && i + 1 < len && input[i + 1] == '=' -> {
+                    tokens.add(Token.LessOrEqual)
+                    i += 2
+                }
+                c == '>' && i + 1 < len && input[i + 1] == '=' -> {
+                    tokens.add(Token.GreaterOrEqual)
+                    i += 2
+                }
+                c == '<' -> {
+                    tokens.add(Token.LessThan)
+                    i++
+                }
+                c == '>' -> {
+                    tokens.add(Token.GreaterThan)
+                    i++
+                }
+                c == '&' && i + 1 < len && input[i + 1] == '&' -> {
+                    tokens.add(Token.And)
+                    i += 2
+                }
+                c == '|' && i + 1 < len && input[i + 1] == '|' -> {
+                    tokens.add(Token.Or)
+                    i += 2
+                }
+                c == '!' -> {
+                    tokens.add(Token.Not)
                     i++
                 }
                 c == '√' -> {
@@ -248,9 +210,9 @@ class MathExpressionParser {
                     tokens.add(Token.Comma)
                     i++
                 }
-                c.isDigit() || c == '.' -> {
+                c.isDigit() -> {
                     val start = i
-                    var hasDot = c == '.'
+                    var hasDot = false
                     i++
                     while (i < len) {
                         val ch = input[i]
@@ -310,9 +272,9 @@ class MathExpressionParser {
             return token
         }
 
-        fun parseExpression(): MathNode = parseOr()
+        fun parseExpression(): ExpressionNode = parseOr()
 
-        private fun parseOr(): MathNode {
+        private fun parseOr(): ExpressionNode {
             var node = parseAnd()
             while (peek() is Token.Or) {
                 advance()
@@ -322,7 +284,7 @@ class MathExpressionParser {
             return node
         }
 
-        private fun parseAnd(): MathNode {
+        private fun parseAnd(): ExpressionNode {
             var node = parseEquality()
             while (peek() is Token.And) {
                 advance()
@@ -332,7 +294,7 @@ class MathExpressionParser {
             return node
         }
 
-        private fun parseEquality(): MathNode {
+        private fun parseEquality(): ExpressionNode {
             var node = parseRelational()
             while (true) {
                 when (peek()) {
@@ -352,7 +314,7 @@ class MathExpressionParser {
             return node
         }
 
-        private fun parseRelational(): MathNode {
+        private fun parseRelational(): ExpressionNode {
             var node = parseAdditive()
             while (true) {
                 when (peek()) {
@@ -382,7 +344,7 @@ class MathExpressionParser {
             return node
         }
 
-        private fun parseAdditive(): MathNode {
+        private fun parseAdditive(): ExpressionNode {
             var node = parseTerm()
             while (true) {
                 when (peek()) {
@@ -402,7 +364,7 @@ class MathExpressionParser {
             return node
         }
 
-        private fun parseTerm(): MathNode {
+        private fun parseTerm(): ExpressionNode {
             var node = parsePowerAndRoot()
             while (true) {
                 when (peek()) {
@@ -422,7 +384,7 @@ class MathExpressionParser {
             return node
         }
 
-        private fun parsePowerAndRoot(): MathNode {
+        private fun parsePowerAndRoot(): ExpressionNode {
             var node = parseUnary()
             while (true) {
                 when (peek()) {
@@ -442,7 +404,7 @@ class MathExpressionParser {
             return node
         }
 
-        private fun parseUnary(): MathNode {
+        private fun parseUnary(): ExpressionNode {
             when (val token = peek()) {
                 is Token.Plus -> {
                     advance()
@@ -488,7 +450,7 @@ class MathExpressionParser {
             }
         }
 
-        private fun parsePrimary(): MathNode {
+        private fun parsePrimary(): ExpressionNode {
             val token = peek()
                 ?: throw IllegalArgumentException("Kifejezés korai vége. Hiányzó operandus!")
 
@@ -505,7 +467,7 @@ class MathExpressionParser {
                     val varToken = advance() as Token.Variable
                     val varName = varToken.name
 
-                    // Beépített konstansok (pi, e, true, false)
+                    // Beépített konstansok
                     when (varName.lowercase()) {
                         "true", "igaz" -> return BooleanNode(true)
                         "false", "hamis" -> return BooleanNode(false)
@@ -514,9 +476,8 @@ class MathExpressionParser {
                     }
 
                     if (peek() is Token.LParen) {
-                        // Ez egy függvényhívás! (pl. f1(x) vagy Fizika.f1(x))
                         advance() // '('
-                        val argNodes = mutableListOf<MathNode>()
+                        val argNodes = mutableListOf<ExpressionNode>()
                         if (peek() !is Token.RParen) {
                             while (true) {
                                 val argExpr = parseExpression()
@@ -587,7 +548,6 @@ class MathExpressionParser {
                             }
                         }
                     } else {
-                        // Változó feloldása (helyi, minősített vagy más munkaterületről származó)
                         val resolvedValue = resolveVariableValue(varName)
                         VariableNode(varName, resolvedValue)
                     }
@@ -601,100 +561,180 @@ class MathExpressionParser {
                     advance()
                     expr
                 }
-                else -> {
-                    throw IllegalArgumentException("Érvénytelen szimbólum a kifejezésben: $token")
-                }
+                else -> throw IllegalArgumentException("Váratlan szimbólum: $token")
             }
-        }
-
-        private fun resolveVariableValue(varName: String): Value {
-            // 1. Minősített hivatkozás: Pl. "Fizika.g" vagy "Fizika.m"
-            if (varName.contains(".")) {
-                val parts = varName.split(".")
-                val wsName = parts[0]
-                val realName = parts[1]
-                val targetWs = simulation?.workspaces?.get(wsName)
-                if (targetWs != null) {
-                    val rawVal = targetWs.variables[realName]
-                        ?: targetWs.variables[realName.lowercase()]
-                    if (rawVal != null) {
-                        return parseValueFromRaw(rawVal)
-                    }
-                }
-            }
-
-            // 2. Helyi változó a jelenlegi munkaterületen
-            val localVal = variables[varName]
-                ?: variables[varName.lowercase()]
-                ?: variables[varName.uppercase()]
-
-            if (localVal != null) {
-                return localVal
-            }
-
-            // 3. Globális keresés a szimuláció többi munkaterületén
-            if (simulation != null) {
-                for (ws in simulation.workspaces.values) {
-                    val foundRaw = ws.variables[varName]
-                        ?: ws.variables[varName.lowercase()]
-                    if (foundRaw != null) {
-                        return parseValueFromRaw(foundRaw)
-                    }
-                }
-            }
-
-            return Value.Number(0.0)
         }
 
         private fun resolveUserFunction(funcName: String): UserFunction? {
-            // 1. Minősített hivatkozás: Pl. "Fizika.f1"
-            if (funcName.contains(".")) {
+            if (userFunctions.containsKey(funcName)) return userFunctions[funcName]
+            if (userFunctions.containsKey(funcName.lowercase())) return userFunctions[funcName.lowercase()]
+
+            if (funcName.contains(".") && simulation != null) {
                 val parts = funcName.split(".")
-                val wsName = parts[0]
-                val realName = parts[1]
-                val targetWs = simulation?.workspaces?.get(wsName)
-                if (targetWs != null) {
-                    val fData = targetWs.functions.firstOrNull { it.name.equals(realName, ignoreCase = true) }
-                    if (fData != null) {
-                        return UserFunction(fData.name, fData.parameters, fData.expressionBody)
+                if (parts.size == 2) {
+                    val wsName = parts[0]
+                    val fName = parts[1]
+                    val targetWs = simulation.workspaces[wsName]
+                    if (targetWs != null) {
+                        val fData = targetWs.functions.find { it.name.equals(fName, ignoreCase = true) }
+                        if (fData != null) {
+                            return UserFunction(fData.name, fData.parameters, fData.expressionBody)
+                        }
                     }
                 }
             }
 
-            // 2. Helyi függvény a jelenlegi kontextusban
-            val localFunc = userFunctions[funcName]
-                ?: userFunctions[funcName.lowercase()]
-                ?: userFunctions[funcName.uppercase()]
-
-            if (localFunc != null) {
-                return localFunc
-            }
-
-            // 3. Globális keresés a szimuláció többi munkaterületén
             if (simulation != null) {
-                for (ws in simulation.workspaces.values) {
-                    val fData = ws.functions.firstOrNull { it.name.equals(funcName, ignoreCase = true) }
-                    if (fData != null) {
-                        return UserFunction(fData.name, fData.parameters, fData.expressionBody)
-                    }
+                val activeWs = simulation.getActiveWorkspace()
+                val fData = activeWs.functions.find { it.name.equals(funcName, ignoreCase = true) }
+                if (fData != null) {
+                    return UserFunction(fData.name, fData.parameters, fData.expressionBody)
                 }
             }
 
             return null
         }
 
-        private fun parseValueFromRaw(raw: String): Value {
-            val trimmed = raw.trim()
-            if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
-                (trimmed.startsWith("'") && trimmed.endsWith("'"))
-            ) {
-                return Value.Text(trimmed.substring(1, trimmed.length - 1))
+        private fun resolveVariableValue(varName: String): Value {
+            val valFromMap = variables[varName] ?: variables[varName.lowercase()]
+            if (valFromMap != null) {
+                return valFromMap
             }
-            val num = trimmed.toDoubleOrNull()
-            if (num != null) return Value.Number(num)
-            if (trimmed.equals("true", ignoreCase = true) || trimmed.equals("igaz", ignoreCase = true)) return Value.Bool(true)
-            if (trimmed.equals("false", ignoreCase = true) || trimmed.equals("hamis", ignoreCase = true)) return Value.Bool(false)
-            return Value.Text(trimmed)
+
+            if (varName.contains(".")) {
+                val currentWs = simulation?.getActiveWorkspace() ?: Workspace("Fő_Munkaterület")
+                val resolvedDotVal = resolveObjectPropertyPath(varName, currentWs, simulation)
+                if (resolvedDotVal != null) {
+                    return resolvedDotVal
+                }
+            }
+
+            return Value.Text(varName)
         }
     }
+}
+
+/**
+ * Feloldja az objektum tulajdonság elérési útvonalat (pl. zöldAlma.szín vagy Kert.zöldAlmafa.almák.szín).
+ */
+fun resolveObjectPropertyPath(
+    path: String,
+    currentWorkspace: Workspace,
+    simulation: Simulation?
+): Value? {
+    val parts = path.split(".")
+    if (parts.size < 2) return null
+
+    var ws = currentWorkspace
+    var partIdx = 0
+
+    if (simulation != null && simulation.workspaces.containsKey(parts[0])) {
+        ws = simulation.workspaces[parts[0]]!!
+        partIdx = 1
+    }
+
+    if (partIdx >= parts.size) return null
+
+    val currentObjName = parts[partIdx]
+    var currentObj = ws.objects[currentObjName]
+
+    if (currentObj == null) {
+        val rawVarVal = ws.variables[currentObjName] ?: ws.variables[currentObjName.lowercase()]
+        if (rawVarVal != null && partIdx == parts.size - 1) {
+            return parseVariableValue(rawVarVal)
+        }
+        return null
+    }
+
+    partIdx++
+
+    while (partIdx < parts.size) {
+        val obj = currentObj ?: return null
+        val propName = parts[partIdx]
+        val propValueStr = obj.properties[propName] ?: return null
+
+        if (partIdx == parts.size - 1) {
+            return parseVariableValue(propValueStr)
+        } else {
+            val nextObjName = propValueStr.trim().removeSurrounding("\"").removeSurrounding("'")
+            val nextObj = ws.objects[nextObjName] ?: return null
+            currentObj = nextObj
+            partIdx++
+        }
+    }
+
+    return null
+}
+
+/**
+ * Frissíti a megadott objektum tulajdonság elérési útvonalát a szimulációban (pl. zöldAlma.szín = "piros").
+ */
+fun updateObjectPropertyPath(
+    path: String,
+    newValueStr: String,
+    currentWorkspace: Workspace,
+    simulation: Simulation
+): Simulation {
+    val parts = path.split(".")
+    if (parts.size < 2) return simulation
+
+    var wsName = currentWorkspace.name
+    var ws = currentWorkspace
+    var partIdx = 0
+
+    if (simulation.workspaces.containsKey(parts[0])) {
+        wsName = parts[0]
+        ws = simulation.workspaces[wsName]!!
+        partIdx = 1
+    }
+
+    if (partIdx >= parts.size) return simulation
+
+    val currentObjName = parts[partIdx]
+    var currentObj = ws.objects[currentObjName] ?: return simulation
+    partIdx++
+
+    val objChain = mutableListOf<ObjectInstance>()
+    objChain.add(currentObj)
+
+    while (partIdx < parts.size - 1) {
+        val propName = parts[partIdx]
+        val propValueStr = currentObj.properties[propName] ?: return simulation
+        val nextObjName = propValueStr.trim().removeSurrounding("\"").removeSurrounding("'")
+        val nextObj = ws.objects[nextObjName] ?: return simulation
+        currentObj = nextObj
+        objChain.add(currentObj)
+        partIdx++
+    }
+
+    val finalPropName = parts[partIdx]
+    val targetObj = objChain.last()
+    val updatedProps = targetObj.properties + (finalPropName to newValueStr)
+    val updatedObj = targetObj.copy(properties = updatedProps)
+
+    val updatedObjects = ws.objects + (updatedObj.name to updatedObj)
+    val updatedWs = ws.copy(objects = updatedObjects)
+    val updatedWorkspaces = simulation.workspaces + (wsName to updatedWs)
+
+    return simulation.copy(workspaces = updatedWorkspaces)
+}
+
+fun parseVariableValue(inputStr: String): Value {
+    val trimmed = inputStr.trim()
+    if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
+        (trimmed.startsWith("'") && trimmed.endsWith("'"))
+    ) {
+        return Value.Text(trimmed.substring(1, trimmed.length - 1))
+    }
+    val num = trimmed.toDoubleOrNull()
+    if (num != null) {
+        return Value.Number(num)
+    }
+    if (trimmed.equals("true", ignoreCase = true) || trimmed.equals("igaz", ignoreCase = true)) {
+        return Value.Bool(true)
+    }
+    if (trimmed.equals("false", ignoreCase = true) || trimmed.equals("hamis", ignoreCase = true)) {
+        return Value.Bool(false)
+    }
+    return Value.Text(trimmed)
 }
