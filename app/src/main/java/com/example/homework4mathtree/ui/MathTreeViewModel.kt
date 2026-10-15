@@ -127,14 +127,13 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
-     * Initialization gomb: Az "init" vagy "initialization" címkéjű (valamint a feltétel nélküli)
-     * szabályokat beteszi a Process Queue-ba és elindítja az aszinkron feldolgozást.
+     * Initialization gomb: Az "init" vagy "initialization" címkéjű szabályokat
+     * beteszi a Process Queue-ba és elindítja az aszinkron feldolgozást.
      */
     fun triggerInitialization() {
         val initRules = activeWorkspace.rules.filter {
             it.label.equals("init", ignoreCase = true) ||
-                it.label.equals("initialization", ignoreCase = true) ||
-                it.isUnconditional
+                it.label.equals("initialization", ignoreCase = true)
         }
         enqueueAndProcessRules(initRules)
     }
@@ -331,10 +330,13 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
-     * Szabályok kiértékelése Aszinkron módon a Process Queue használatával.
+     * Szabályok általános kiértékelése Aszinkron módon a Process Queue használatával.
+     * Az 'unconditionally' (feltétel nélküli) szabályok kihagyásra kerülnek általános kiértékeléskor;
+     * csak akkor hajtódnak végre, ha kifejezetten rájuk fókuszál a szimuláció (focus on <címke>).
      */
     fun evaluateRules() {
-        enqueueAndProcessRules(activeWorkspace.rules)
+        val conditionalRules = activeWorkspace.rules.filter { !it.isUnconditional }
+        enqueueAndProcessRules(conditionalRules)
     }
 
     /**
@@ -427,6 +429,7 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
                             if (valueChanged && currentRule.mayCauseChaining) {
                                 val dependentRules = activeWorkspace.rules.filter { dependentRule ->
                                     dependentRule.isActive &&
+                                        !dependentRule.isUnconditional &&
                                         dependentRule.referencedVariables.contains(currentRule.targetVariable) &&
                                         !queue.contains(dependentRule)
                                 }

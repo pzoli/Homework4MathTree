@@ -372,4 +372,28 @@ class MathParserTest {
         assertEquals("Klíma Időzítő", r3.timerName)
         assertEquals("unconditionally start timer Klíma Időzítő", r3.toRuleText())
     }
+
+    @Test
+    fun testUnconditionalRuleFocusedOnly() {
+        val r = RuleParser.parseRuleText(
+            name = "Feltétel nélküli szabály",
+            text = "unconditionally conclude that x1 = 10 + y",
+            defaultLabel = "init"
+        )
+        assertTrue(r.isUnconditional)
+
+        // General evaluation should filter out unconditional rules
+        val allRules = listOf(
+            r,
+            RuleParser.parseRuleText("Normál szabály", "if temp > 25 then conclude that status = \"Hűtés\"")
+        )
+        val generalRules = allRules.filter { !it.isUnconditional }
+        assertEquals(1, generalRules.size)
+        assertEquals("Normál szabály", generalRules[0].name)
+
+        // Focused evaluation on label "init" includes the unconditional rule
+        val initRules = allRules.filter { it.label.equals("init", ignoreCase = true) }
+        assertEquals(1, initRules.size)
+        assertEquals("Feltétel nélküli szabály", initRules[0].name)
+    }
 }
