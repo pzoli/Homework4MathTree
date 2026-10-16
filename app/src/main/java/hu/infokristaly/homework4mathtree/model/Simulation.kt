@@ -123,6 +123,48 @@ fun parseVariableValue(inputStr: String): Value {
     return Value.Text(trimmed)
 }
 
+fun updateLocalNestedObject(
+    props: Map<String, Any>,
+    pathSegments: List<String>,
+    createdSubObj: ObjectInstance
+): Map<String, Any> {
+    if (pathSegments.isEmpty()) return props
+    val head = pathSegments[0]
+    if (pathSegments.size == 1) {
+        return props + (head to createdSubObj)
+    } else {
+        val childVal = props[head]
+        val childObj: ObjectInstance = when (childVal) {
+            is ObjectInstance -> childVal
+            else -> ObjectInstance(name = head, className = "ClassDef", properties = emptyMap())
+        }
+        val updatedChildProps = updateLocalNestedObject(childObj.properties, pathSegments.subList(1, pathSegments.size), createdSubObj)
+        val updatedChildObj = childObj.copy(properties = updatedChildProps)
+        return props + (head to updatedChildObj)
+    }
+}
+
+fun updateLocalNestedPropertyValue(
+    props: Map<String, Any>,
+    pathSegments: List<String>,
+    newValue: Any
+): Map<String, Any> {
+    if (pathSegments.isEmpty()) return props
+    val head = pathSegments[0]
+    if (pathSegments.size == 1) {
+        return props + (head to newValue)
+    } else {
+        val childVal = props[head]
+        val childObj: ObjectInstance = when (childVal) {
+            is ObjectInstance -> childVal
+            else -> ObjectInstance(name = head, className = "ClassDef", properties = emptyMap())
+        }
+        val updatedChildProps = updateLocalNestedPropertyValue(childObj.properties, pathSegments.subList(1, pathSegments.size), newValue)
+        val updatedChildObj = childObj.copy(properties = updatedChildProps)
+        return props + (head to updatedChildObj)
+    }
+}
+
 fun getPropertyValueAsString(propValue: Any?): String {
     return when (propValue) {
         is ObjectInstance -> propValue.name

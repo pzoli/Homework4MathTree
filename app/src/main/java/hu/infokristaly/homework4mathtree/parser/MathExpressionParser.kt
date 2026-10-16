@@ -723,19 +723,103 @@ private fun updateNestedObjectProperty(
         return obj.copy(properties = updatedProps)
     } else {
         val existingPropVal = obj.properties[propName]
-        if (existingPropVal is ObjectInstance) {
-            val updatedSubObj = updateNestedObjectProperty(existingPropVal, pathSegments.subList(1, pathSegments.size), newValueStr, ws)
-            val updatedProps = obj.properties + (propName to updatedSubObj)
-            return obj.copy(properties = updatedProps)
-        } else if (existingPropVal != null) {
-            val subObjName = getPropertyValueAsString(existingPropVal).trim().removeSurrounding("\"").removeSurrounding("'")
-            val subObj = ws.objects[subObjName]
-            if (subObj != null) {
-                val updatedSubObj = updateNestedObjectProperty(subObj, pathSegments.subList(1, pathSegments.size), newValueStr, ws)
-                val updatedProps = obj.properties + (propName to updatedSubObj)
-                return obj.copy(properties = updatedProps)
+        val propType = ws.classDefs[obj.className]?.properties?.get(propName) ?: "ClassDef"
+        val childObj: ObjectInstance = when (existingPropVal) {
+            is ObjectInstance -> existingPropVal
+            else -> {
+                val subName = getPropertyValueAsString(existingPropVal).trim().removeSurrounding("\"").removeSurrounding("'")
+                ws.objects[subName] ?: run {
+                    val subClassDef = ws.classDefs[propType]
+                    val subProps = mutableMapOf<String, Any>()
+                    subClassDef?.properties?.forEach { (sName, sType) ->
+                        subProps[sName] = createTypedPropertyValue(sType, "")
+                    }
+                    ObjectInstance(
+                        name = "${obj.name}_$propName",
+                        className = propType,
+                        properties = subProps
+                    )
+                }
             }
         }
-        return obj
+        val updatedSubObj = updateNestedObjectProperty(childObj, pathSegments.subList(1, pathSegments.size), newValueStr, ws)
+        val updatedProps = obj.properties + (propName to updatedSubObj)
+        return obj.copy(properties = updatedProps)
+    }
+}
+
+/**
+ * Frissíti a megadott objektum tulajdonság elérési útvonalát egy beágyazott ObjectInstance objektumra a szimulációban.
+ */
+fun updateObjectPropertyObject(
+    path: String,
+    newSubObj: ObjectInstance,
+    currentWorkspace: Workspace,
+    simulation: Simulation
+): Simulation {
+    val parts = path.split(".")
+    if (parts.size < 2) return simulation
+
+    var wsName = currentWorkspace.name
+    var ws = currentWorkspace
+    var partIdx = 0
+
+    if (simulation.workspaces.containsKey(parts[0])) {
+        wsName = parts[0]
+        ws = simulation.workspaces[wsName]!!
+        partIdx = 1
+    }
+
+    if (partIdx >= parts.size) return simulation
+
+    val rootObjName = parts[partIdx]
+    val rootObj = ws.objects[rootObjName] ?: return simulation
+
+    val updatedRootObj = updateNestedObjectObject(rootObj, parts.subList(partIdx + 1, parts.size), newSubObj, ws)
+
+    val updatedObjects = ws.objects + (rootObjName to updatedRootObj)
+    val updatedWs = ws.copy(objects = updatedObjects)
+    val updatedWorkspaces = simulation.workspaces + (wsName to updatedWs)
+
+    return simulation.copy(workspaces = updatedWorkspaces)
+}
+
+private fun updateNestedObjectObject(
+    obj: ObjectInstance,
+    pathSegments: List<String>,
+    newSubObj: ObjectInstance,
+    ws: Workspace
+): ObjectInstance {
+    if (pathSegments.isEmpty()) return obj
+
+    val propName = pathSegments[0]
+
+    if (pathSegments.size == 1) {
+        val updatedProps = obj.properties + (propName to newSubObj)
+        return obj.copy(properties = updatedProps)
+    } else {
+        val existingPropVal = obj.properties[propName]
+        val propType = ws.classDefs[obj.className]?.properties?.get(propName) ?: "ClassDef"
+        val childObj: ObjectInstance = when (existingPropVal) {
+            is ObjectInstance -> existingPropVal
+            else -> {
+                val subName = getPropertyValueAsString(existingPropVal).trim().removeSurrounding("\"").removeSurrounding("'")
+                ws.objects[subName] ?: run {
+                    val subClassDef = ws.classDefs[propType]
+                    val subProps = mutableMapOf<String, Any>()
+                    subClassDef?.properties?.forEach { (sName, sType) ->
+                        subProps[sName] = createTypedPropertyValue(sType, "")
+                    }
+                    ObjectInstance(
+                        name = "${obj.name}_$propName",
+                        className = propType,
+                        properties = subProps
+                    )
+                }
+            }
+        }
+        val updatedChild = updateNestedObjectObject(childObj, pathSegments.subList(1, pathSegments.size), newSubObj, ws)
+        val updatedProps = obj.properties + (propName to updatedChild)
+        return obj.copy(properties = updatedProps)
     }
 }

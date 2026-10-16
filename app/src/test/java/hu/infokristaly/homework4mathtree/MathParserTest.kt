@@ -471,4 +471,50 @@ class MathParserTest {
         assertEquals("piros", getPropertyValueAsString(obj.properties["szín"]))
         assertEquals("200", getPropertyValueAsString(obj.properties["súly"]))
     }
+
+    @Test
+    fun testMultiLevelSubObjectCreation() {
+        var sim = Simulation()
+        val activeWs = sim.getActiveWorkspace()
+
+        // Create level 1 sub-object (zöldAlmafa.csemete of type Almafa)
+        val subObj1 = ObjectInstance(
+            name = "zöldAlmafa_csemete",
+            className = "Almafa",
+            properties = mapOf("almák" to StringNode(""))
+        )
+        sim = hu.infokristaly.homework4mathtree.parser.updateObjectPropertyObject(
+            path = "zöldAlmafa.csemete",
+            newSubObj = subObj1,
+            currentWorkspace = activeWs,
+            simulation = sim
+        )
+
+        // Create level 2 sub-object (zöldAlmafa.csemete.almák of type Alma)
+        val subObj2 = ObjectInstance(
+            name = "zöldAlmafa_csemete_almák",
+            className = "Alma",
+            properties = mapOf("szín" to StringNode("sárga"), "súly" to NumberNode(80.0))
+        )
+        sim = hu.infokristaly.homework4mathtree.parser.updateObjectPropertyObject(
+            path = "zöldAlmafa.csemete.almák",
+            newSubObj = subObj2,
+            currentWorkspace = activeWs,
+            simulation = sim
+        )
+
+        // Evaluate level 2 embedded properties
+        val tree1 = parser.parse("zöldAlmafa.csemete.almák.szín", simulation = sim)
+        assertEquals("sárga", tree1.getValue().toDisplayString())
+
+        // Update level 2 property
+        sim = hu.infokristaly.homework4mathtree.parser.updateObjectPropertyPath(
+            path = "zöldAlmafa.csemete.almák.szín",
+            newValueStr = "\"lila\"",
+            currentWorkspace = activeWs,
+            simulation = sim
+        )
+        val tree2 = parser.parse("zöldAlmafa.csemete.almák.szín", simulation = sim)
+        assertEquals("lila", tree2.getValue().toDisplayString())
+    }
 }

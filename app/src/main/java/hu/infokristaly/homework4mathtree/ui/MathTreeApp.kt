@@ -33,6 +33,8 @@ import hu.infokristaly.homework4mathtree.model.ObjectInstance
 import hu.infokristaly.homework4mathtree.model.RuleParser
 import hu.infokristaly.homework4mathtree.model.Timer
 import hu.infokristaly.homework4mathtree.model.UserFunctionData
+import hu.infokristaly.homework4mathtree.model.updateLocalNestedObject
+import hu.infokristaly.homework4mathtree.model.updateLocalNestedPropertyValue
 import hu.infokristaly.homework4mathtree.model.createTypedPropertyValue
 import hu.infokristaly.homework4mathtree.model.getPropertyValueAsString
 
@@ -651,108 +653,21 @@ fun MathTreeApp(
                                         }
                                     }
 
-                                    obj.properties.forEach { (propName, propVal) ->
-                                        val propType = classDefsList[obj.className]?.properties?.get(propName) ?: "StringNode"
-
-                                        if (classDefsList.containsKey(propType)) {
-                                            // Alobjektum típusú tulajdonság
-                                            val subObj: ObjectInstance? = when (propVal) {
-                                                is ObjectInstance -> propVal
-                                                else -> {
-                                                    val subName = getPropertyValueAsString(propVal).trim().removeSurrounding("\"").removeSurrounding("'")
-                                                    objectsList[subName]
-                                                }
-                                            }
-
-                                            if (subObj != null) {
-                                                Column(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(start = 12.dp, top = 4.dp, bottom = 4.dp),
-                                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                                ) {
-                                                    Text(
-                                                        text = "📦 ${obj.name}.$propName ($propType):",
-                                                        fontSize = 12.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = MaterialTheme.colorScheme.primary
-                                                    )
-                                                    subObj.properties.forEach { (subPropName, subPropVal) ->
-                                                        val subDisplayStr = getPropertyValueAsString(subPropVal)
-                                                        Row(
-                                                            modifier = Modifier.fillMaxWidth(),
-                                                            verticalAlignment = Alignment.CenterVertically,
-                                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                        ) {
-                                                            Text(
-                                                                text = "    ${obj.name}.$propName.$subPropName =",
-                                                                fontWeight = FontWeight.Bold,
-                                                                fontSize = 12.sp,
-                                                                fontFamily = FontFamily.Monospace,
-                                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                                modifier = Modifier.widthIn(min = 160.dp, max = 240.dp),
-                                                                maxLines = 1
-                                                            )
-                                                            VariableValueInputField(
-                                                                varName = "${obj.name}.$propName.$subPropName",
-                                                                initialValue = subDisplayStr,
-                                                                onValueCommit = { newSubVal ->
-                                                                    viewModel.updateObjectProperty("${obj.name}.$propName.$subPropName", newSubVal)
-                                                                },
-                                                                modifier = Modifier.weight(1f)
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            } else {
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(start = 12.dp, top = 2.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.SpaceBetween
-                                                ) {
-                                                    Text(
-                                                        text = "📦 ${obj.name}.$propName ($propType) = null",
-                                                        fontSize = 12.sp,
-                                                        fontWeight = FontWeight.Medium,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                    OutlinedButton(
-                                                        onClick = { viewModel.createAndLinkSubObject(obj.name, propName, propType) },
-                                                        shape = RoundedCornerShape(8.dp)
-                                                    ) {
-                                                        Text("➕ Alobjektum Létrehozása ($propType)", fontSize = 11.sp)
-                                                    }
-                                                }
-                                            }
-                                        } else {
-                                            // Normál nem-alobjektum tulajdonság
-                                            val displayStr = getPropertyValueAsString(propVal)
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Text(
-                                                    text = "  ${obj.name}.$propName =",
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 13.sp,
-                                                    fontFamily = FontFamily.Monospace,
-                                                    modifier = Modifier.widthIn(min = 140.dp, max = 220.dp),
-                                                    maxLines = 1
-                                                )
-                                                VariableValueInputField(
-                                                    varName = "${obj.name}.$propName",
-                                                    initialValue = displayStr,
-                                                    onValueCommit = { newVal ->
-                                                        viewModel.updateObjectProperty("${obj.name}.$propName", newVal)
-                                                    },
-                                                    modifier = Modifier.weight(1f)
-                                                )
-                                            }
+                                    // REKURZÍV FELÜLETI SZERKESZTŐ AZ OBJEKTUM KÁRTYÁN
+                                    RecursiveObjectPropertiesEditor(
+                                        parentPath = obj.name,
+                                        properties = obj.properties,
+                                        className = obj.className,
+                                        classDefsList = classDefsList,
+                                        objectsList = objectsList,
+                                        depth = 0,
+                                        onPropertyCommit = { path, valStr ->
+                                            viewModel.updateObjectProperty(path, valStr)
+                                        },
+                                        onCreateSubObject = { pPath, pName, targetClass ->
+                                            viewModel.createAndLinkSubObject(pPath, pName, targetClass)
                                         }
-                                    }
+                                    )
                                 }
                             }
                         }
@@ -1414,102 +1329,60 @@ fun MathTreeApp(
 
                     Text(text = "Tulajdonság Értékek (Beállítás):", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
 
-                    objPropsState.forEach { (pName, pVal) ->
-                        val propType = classDefsList[objClassInput]?.properties?.get(pName) ?: "StringNode"
-
-                        if (classDefsList.containsKey(propType)) {
-                            // Alobjektum típusú tulajdonság (pl. almák: Alma)
-                            val subObj: ObjectInstance? = when (pVal) {
-                                is ObjectInstance -> pVal
-                                else -> {
-                                    val subName = getPropertyValueAsString(pVal).trim().removeSurrounding("\"").removeSurrounding("'")
-                                    objectsList[subName]
-                                }
-                            }
-
-                            if (subObj != null) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(start = 12.dp, top = 4.dp, bottom = 4.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Text(
-                                        text = "📦 Alobjektum: $pName ($propType):",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    subObj.properties.forEach { (subPropName, subPropVal) ->
-                                        val subPropType = classDefsList[subObj.className]?.properties?.get(subPropName) ?: "StringNode"
-                                        val subDisplayStr = getPropertyValueAsString(subPropVal)
-                                        OutlinedTextField(
-                                            value = subDisplayStr,
-                                            onValueChange = { newSubV ->
-                                                val typedSubVal = createTypedPropertyValue(subPropType, newSubV)
-                                                val updatedSubProps = subObj.properties + (subPropName to typedSubVal)
-                                                val updatedSubObj = subObj.copy(properties = updatedSubProps)
-                                                objPropsState = objPropsState + (pName to updatedSubObj)
-                                                if (editingObjectName != null) {
-                                                    viewModel.updateObjectProperty("${editingObjectName!!}.$pName.$subPropName", newSubV)
-                                                }
-                                            },
-                                            label = { Text("    $pName.$subPropName ($subPropType)") },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            singleLine = true
-                                        )
-                                    }
-                                }
+                    // REKURZÍV FELÜLETI SZERKESZTŐ AZ OBJEKTUM SZERKESZTŐ DIALOGBAN
+                    RecursiveObjectPropertiesEditor(
+                        parentPath = objNameInput,
+                        properties = objPropsState,
+                        className = objClassInput,
+                        classDefsList = classDefsList,
+                        objectsList = objectsList,
+                        depth = 0,
+                        onPropertyCommit = { path, valStr ->
+                            val pathSegments = path.split(".")
+                            val relativePath = if (pathSegments.isNotEmpty() && pathSegments[0] == objNameInput) {
+                                pathSegments.subList(1, pathSegments.size)
                             } else {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "📦 $pName ($propType) = null",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    OutlinedButton(
-                                        onClick = {
-                                            val subClassDef = classDefsList[propType]
-                                            val subProps = mutableMapOf<String, Any>()
-                                            subClassDef?.properties?.forEach { (sName, sType) ->
-                                                subProps[sName] = createTypedPropertyValue(sType, "")
-                                            }
-                                            val targetName = objNameInput.ifEmpty { "újObjektum" }
-                                            val createdSubObj = ObjectInstance(
-                                                name = "${targetName}_$pName",
-                                                className = propType,
-                                                properties = subProps
-                                            )
-                                            objPropsState = objPropsState + (pName to createdSubObj)
-                                            if (editingObjectName != null) {
-                                                viewModel.createAndLinkSubObject(editingObjectName!!, pName, propType)
-                                            }
-                                        },
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) {
-                                        Text("➕ Alobjektum Létrehozása ($propType)", fontSize = 11.sp)
-                                    }
-                                }
+                                pathSegments
                             }
-                        } else {
-                            val displayVal = getPropertyValueAsString(pVal)
-                            OutlinedTextField(
-                                value = displayVal,
-                                onValueChange = { newV ->
-                                    val typedVal = createTypedPropertyValue(propType, newV)
-                                    objPropsState = objPropsState + (pName to typedVal)
-                                },
-                                label = { Text("$pName ($propType)") },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true
+
+                            if (relativePath.isNotEmpty()) {
+                                val topPropName = relativePath.last()
+                                val propType = classDefsList[objClassInput]?.properties?.get(topPropName) ?: "StringNode"
+                                val typedVal = createTypedPropertyValue(propType, valStr)
+                                objPropsState = updateLocalNestedPropertyValue(objPropsState, relativePath, typedVal)
+                            }
+
+                            if (editingObjectName != null) {
+                                viewModel.updateObjectProperty(path, valStr)
+                            }
+                        },
+                        onCreateSubObject = { pPath, pName, targetClass ->
+                            val subClassDef = classDefsList[targetClass]
+                            val subProps = mutableMapOf<String, Any>()
+                            subClassDef?.properties?.forEach { (sName, sType) ->
+                                subProps[sName] = createTypedPropertyValue(sType, "")
+                            }
+                            val createdSubObj = ObjectInstance(
+                                name = "${pPath.replace(".", "_")}_$pName",
+                                className = targetClass,
+                                properties = subProps
                             )
+
+                            val pathSegments = pPath.split(".")
+                            val relativePath = if (pathSegments.isNotEmpty() && pathSegments[0] == objNameInput) {
+                                pathSegments.subList(1, pathSegments.size)
+                            } else {
+                                pathSegments
+                            }
+
+                            val fullRelativeSegments = relativePath + pName
+                            objPropsState = updateLocalNestedObject(objPropsState, fullRelativeSegments, createdSubObj)
+
+                            if (editingObjectName != null) {
+                                viewModel.createAndLinkSubObject(pPath, pName, targetClass)
+                            }
                         }
-                    }
+                    )
                 }
             },
             confirmButton = {
@@ -1973,6 +1846,123 @@ fun MathTreeApp(
                 }
             }
         )
+    }
+}
+
+/**
+ * Rekurzív felületi komponens tetszőleges mélységű egymásba ágyazott objektum tulajdonságok
+ * megjelenítésére, létrehozására és szerkesztésére.
+ */
+@Composable
+private fun RecursiveObjectPropertiesEditor(
+    parentPath: String,
+    properties: Map<String, Any>,
+    className: String,
+    classDefsList: Map<String, ClassDef>,
+    objectsList: Map<String, ObjectInstance>,
+    depth: Int = 0,
+    onPropertyCommit: (path: String, valueStr: String) -> Unit,
+    onCreateSubObject: (parentPath: String, propName: String, targetClassName: String) -> Unit
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        properties.forEach { (propName, propVal) ->
+            val propType = classDefsList[className]?.properties?.get(propName) ?: "StringNode"
+            val fullPath = if (parentPath.isEmpty()) propName else "$parentPath.$propName"
+
+            if (classDefsList.containsKey(propType)) {
+                // Alobjektum típusú tulajdonság (pl. csemete: Almafa vagy almák: Alma)
+                val subObj: ObjectInstance? = when (propVal) {
+                    is ObjectInstance -> propVal
+                    else -> {
+                        val subName = getPropertyValueAsString(propVal).trim().removeSurrounding("\"").removeSurrounding("'")
+                        objectsList[subName]
+                    }
+                }
+
+                val startPadding = (depth * 12 + 8).dp
+
+                if (subObj != null) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = startPadding, top = 4.dp, bottom = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "📦 $fullPath ($propType):",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+
+                        // RECURSIVE CALL FOR DEEPER LEVELS
+                        RecursiveObjectPropertiesEditor(
+                            parentPath = fullPath,
+                            properties = subObj.properties,
+                            className = subObj.className,
+                            classDefsList = classDefsList,
+                            objectsList = objectsList,
+                            depth = depth + 1,
+                            onPropertyCommit = onPropertyCommit,
+                            onCreateSubObject = onCreateSubObject
+                        )
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = startPadding, top = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "📦 $fullPath ($propType) = null",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        OutlinedButton(
+                            onClick = { onCreateSubObject(parentPath, propName, propType) },
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("➕ Alobjektum Létrehozása ($propType)", fontSize = 11.sp)
+                        }
+                    }
+                }
+            } else {
+                // Primitív értékadó tulajdonság (NumberNode, StringNode, BooleanNode, etc.)
+                val displayStr = getPropertyValueAsString(propVal)
+                val startPadding = (depth * 12 + 8).dp
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = startPadding),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "  $fullPath =",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = (13 - depth.coerceAtMost(2)).sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.widthIn(min = (140 + depth * 10).dp, max = (220 + depth * 10).dp),
+                        maxLines = 1
+                    )
+                    VariableValueInputField(
+                        varName = fullPath,
+                        initialValue = displayStr,
+                        onValueCommit = { newVal ->
+                            onPropertyCommit(fullPath, newVal)
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
     }
 }
 

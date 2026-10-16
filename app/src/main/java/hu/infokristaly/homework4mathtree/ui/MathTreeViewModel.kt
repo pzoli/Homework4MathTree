@@ -344,11 +344,12 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
         autoSaveSimulation()
     }
 
-    fun createAndLinkSubObject(parentObjName: String, propName: String, targetClassName: String) {
-        val parentObj = activeWorkspace.objects[parentObjName] ?: return
+    fun createAndLinkSubObject(parentPath: String, propName: String, targetClassName: String) {
+        val rootObjName = parentPath.split(".")[0]
+        val rootObj = activeWorkspace.objects[rootObjName] ?: return
         val targetClassDef = activeWorkspace.classDefs[targetClassName] ?: return
 
-        val subObjName = "${parentObjName}_$propName"
+        val subObjName = "${parentPath.replace(".", "_")}_$propName"
         val subObjProps = mutableMapOf<String, Any>()
 
         targetClassDef.properties.forEach { (pName, pType) ->
@@ -361,12 +362,14 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
             properties = subObjProps
         )
 
-        val updatedParentProps = parentObj.properties + (propName to embeddedSubObj)
-        val updatedParentObj = parentObj.copy(properties = updatedParentProps)
+        val pathSegments = parentPath.split(".")
+        val relativeSegments = if (pathSegments.size > 1) pathSegments.subList(1, pathSegments.size) else emptyList()
+        val fullRelativeSegments = relativeSegments + propName
 
-        val updatedObjects = activeWorkspace.objects + (updatedParentObj.name to updatedParentObj)
-        val currentWs = activeWorkspace.copy(objects = updatedObjects)
-        updateCurrentWorkspace(currentWs)
+        val updatedProps = hu.infokristaly.homework4mathtree.model.updateLocalNestedObject(rootObj.properties, fullRelativeSegments, embeddedSubObj)
+        val updatedRootObj = rootObj.copy(properties = updatedProps)
+
+        addOrUpdateObject(updatedRootObj)
     }
 
     /**
@@ -574,8 +577,9 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
 
                 withContext(Dispatchers.Main) {
                     ruleResults = resultsMap.toMap()
-                    if (updatedVars != activeWorkspace.variables) {
-                        val updatedWs = activeWorkspace.copy(variables = updatedVars)
+                    val latestWs = simulation.getActiveWorkspace()
+                    if (updatedVars != latestWs.variables) {
+                        val updatedWs = latestWs.copy(variables = updatedVars)
                         val updatedWorkspaces = simulation.workspaces + (updatedWs.name to updatedWs)
                         simulation = simulation.copy(workspaces = updatedWorkspaces)
                     }
