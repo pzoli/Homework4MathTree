@@ -689,7 +689,9 @@ fun MathTreeApp(
                                                                 fontWeight = FontWeight.Bold,
                                                                 fontSize = 12.sp,
                                                                 fontFamily = FontFamily.Monospace,
-                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                                modifier = Modifier.widthIn(min = 160.dp, max = 240.dp),
+                                                                maxLines = 1
                                                             )
                                                             VariableValueInputField(
                                                                 varName = "${obj.name}.$propName.$subPropName",
@@ -736,7 +738,9 @@ fun MathTreeApp(
                                                     text = "  ${obj.name}.$propName =",
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 13.sp,
-                                                    fontFamily = FontFamily.Monospace
+                                                    fontFamily = FontFamily.Monospace,
+                                                    modifier = Modifier.widthIn(min = 140.dp, max = 220.dp),
+                                                    maxLines = 1
                                                 )
                                                 VariableValueInputField(
                                                     varName = "${obj.name}.$propName",
@@ -1037,28 +1041,36 @@ fun MathTreeApp(
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFF00796B))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.widthIn(min = 140.dp, max = 180.dp)
                                 ) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF00796B))
+                                    ) {
+                                        Text(
+                                            text = varName.take(2),
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
+                                        )
+                                    }
+
                                     Text(
-                                        text = varName,
-                                        color = Color.White,
+                                        text = "$varName =",
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp
+                                        fontSize = 15.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        maxLines = 1
                                     )
                                 }
-
-                                Text(
-                                    text = "$varName =",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp
-                                )
 
                                 VariableValueInputField(
                                     varName = varName,
@@ -1406,7 +1418,7 @@ fun MathTreeApp(
                         val propType = classDefsList[objClassInput]?.properties?.get(pName) ?: "StringNode"
 
                         if (classDefsList.containsKey(propType)) {
-                            // Alobjektum típusú tulajdonság
+                            // Alobjektum típusú tulajdonság (pl. almák: Alma)
                             val subObj: ObjectInstance? = when (pVal) {
                                 is ObjectInstance -> pVal
                                 else -> {
