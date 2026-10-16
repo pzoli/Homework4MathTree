@@ -653,49 +653,31 @@ fun MathTreeApp(
 
                                     obj.properties.forEach { (propName, propVal) ->
                                         val propType = classDefsList[obj.className]?.properties?.get(propName) ?: "StringNode"
-                                        val displayStr = getPropertyValueAsString(propVal)
 
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Text(
-                                                text = "  ${obj.name}.$propName =",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 13.sp,
-                                                fontFamily = FontFamily.Monospace
-                                            )
-                                            VariableValueInputField(
-                                                varName = "${obj.name}.$propName",
-                                                initialValue = displayStr,
-                                                onValueCommit = { newVal ->
-                                                    val typedVal = createTypedPropertyValue(propType, newVal)
-                                                    viewModel.updateObjectProperty(obj.name, propName, getPropertyValueAsString(typedVal))
-                                                },
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                        }
-
-                                        // Ha a propType egy ClassDef neve (pl. "Alma"):
                                         if (classDefsList.containsKey(propType)) {
-                                            val subObjName = displayStr.trim().removeSurrounding("\"").removeSurrounding("'")
-                                            val subObj = objectsList[subObjName]
+                                            // Alobjektum típusú tulajdonság
+                                            val subObj: ObjectInstance? = when (propVal) {
+                                                is ObjectInstance -> propVal
+                                                else -> {
+                                                    val subName = getPropertyValueAsString(propVal).trim().removeSurrounding("\"").removeSurrounding("'")
+                                                    objectsList[subName]
+                                                }
+                                            }
+
                                             if (subObj != null) {
                                                 Column(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
-                                                        .padding(start = 16.dp, top = 4.dp, bottom = 4.dp),
+                                                        .padding(start = 12.dp, top = 4.dp, bottom = 4.dp),
                                                     verticalArrangement = Arrangement.spacedBy(4.dp)
                                                 ) {
                                                     Text(
-                                                        text = "└─ Alobjektum tulajdonságok (${obj.name}.$propName -> $subObjName):",
-                                                        fontSize = 11.sp,
+                                                        text = "📦 ${obj.name}.$propName ($propType):",
+                                                        fontSize = 12.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = MaterialTheme.colorScheme.primary
                                                     )
                                                     subObj.properties.forEach { (subPropName, subPropVal) ->
-                                                        val subPropType = classDefsList[subObj.className]?.properties?.get(subPropName) ?: "StringNode"
                                                         val subDisplayStr = getPropertyValueAsString(subPropVal)
                                                         Row(
                                                             modifier = Modifier.fillMaxWidth(),
@@ -713,8 +695,7 @@ fun MathTreeApp(
                                                                 varName = "${obj.name}.$propName.$subPropName",
                                                                 initialValue = subDisplayStr,
                                                                 onValueCommit = { newSubVal ->
-                                                                    val typedSubVal = createTypedPropertyValue(subPropType, newSubVal)
-                                                                    viewModel.updateObjectProperty(subObj.name, subPropName, getPropertyValueAsString(typedSubVal))
+                                                                    viewModel.updateObjectProperty("${obj.name}.$propName.$subPropName", newSubVal)
                                                                 },
                                                                 modifier = Modifier.weight(1f)
                                                             )
@@ -722,17 +703,17 @@ fun MathTreeApp(
                                                     }
                                                 }
                                             } else {
-                                                // Nincs létrehozott alobjektum -> gomb az alobjektum létrehozásához
                                                 Row(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
-                                                        .padding(start = 16.dp, top = 2.dp),
+                                                        .padding(start = 12.dp, top = 2.dp),
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.SpaceBetween
                                                 ) {
                                                     Text(
-                                                        text = "  ${obj.name}.$propName = null (Nincs alobjektum)",
+                                                        text = "📦 ${obj.name}.$propName ($propType) = null",
                                                         fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Medium,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                                     )
                                                     OutlinedButton(
@@ -742,6 +723,29 @@ fun MathTreeApp(
                                                         Text("➕ Alobjektum Létrehozása ($propType)", fontSize = 11.sp)
                                                     }
                                                 }
+                                            }
+                                        } else {
+                                            // Normál nem-alobjektum tulajdonság
+                                            val displayStr = getPropertyValueAsString(propVal)
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = "  ${obj.name}.$propName =",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.sp,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                                VariableValueInputField(
+                                                    varName = "${obj.name}.$propName",
+                                                    initialValue = displayStr,
+                                                    onValueCommit = { newVal ->
+                                                        viewModel.updateObjectProperty("${obj.name}.$propName", newVal)
+                                                    },
+                                                    modifier = Modifier.weight(1f)
+                                                )
                                             }
                                         }
                                     }
@@ -1367,7 +1371,7 @@ fun MathTreeApp(
                     OutlinedTextField(
                         value = objNameInput,
                         onValueChange = { objNameInput = it.trim() },
-                        label = { Text("Objektum neve (pl. zöldAlma)") },
+                        label = { Text("Objektum neve (pl. zöldAlmafa)") },
                         singleLine = true
                     )
 
@@ -1400,33 +1404,27 @@ fun MathTreeApp(
 
                     objPropsState.forEach { (pName, pVal) ->
                         val propType = classDefsList[objClassInput]?.properties?.get(pName) ?: "StringNode"
-                        val displayVal = getPropertyValueAsString(pVal)
 
-                        OutlinedTextField(
-                            value = displayVal,
-                            onValueChange = { newV ->
-                                val typedVal = createTypedPropertyValue(propType, newV)
-                                objPropsState = objPropsState + (pName to typedVal)
-                            },
-                            label = { Text("$pName ($propType)") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-
-                        // Ha a propType egy ClassDef neve (pl. "Alma"):
                         if (classDefsList.containsKey(propType)) {
-                            val subObjName = displayVal.trim().removeSurrounding("\"").removeSurrounding("'")
-                            val subObj = objectsList[subObjName]
+                            // Alobjektum típusú tulajdonság
+                            val subObj: ObjectInstance? = when (pVal) {
+                                is ObjectInstance -> pVal
+                                else -> {
+                                    val subName = getPropertyValueAsString(pVal).trim().removeSurrounding("\"").removeSurrounding("'")
+                                    objectsList[subName]
+                                }
+                            }
+
                             if (subObj != null) {
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(start = 16.dp, top = 4.dp, bottom = 4.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        .padding(start = 12.dp, top = 4.dp, bottom = 4.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Text(
-                                        text = "└─ Alobjektum tulajdonságok ($pName -> $subObjName):",
-                                        fontSize = 11.sp,
+                                        text = "📦 Alobjektum: $pName ($propType):",
+                                        fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary
                                     )
@@ -1437,7 +1435,12 @@ fun MathTreeApp(
                                             value = subDisplayStr,
                                             onValueChange = { newSubV ->
                                                 val typedSubVal = createTypedPropertyValue(subPropType, newSubV)
-                                                viewModel.updateObjectProperty(subObj.name, subPropName, getPropertyValueAsString(typedSubVal))
+                                                val updatedSubProps = subObj.properties + (subPropName to typedSubVal)
+                                                val updatedSubObj = subObj.copy(properties = updatedSubProps)
+                                                objPropsState = objPropsState + (pName to updatedSubObj)
+                                                if (editingObjectName != null) {
+                                                    viewModel.updateObjectProperty("${editingObjectName!!}.$pName.$subPropName", newSubV)
+                                                }
                                             },
                                             label = { Text("    $pName.$subPropName ($subPropType)") },
                                             modifier = Modifier.fillMaxWidth(),
@@ -1445,19 +1448,54 @@ fun MathTreeApp(
                                         )
                                     }
                                 }
-                            } else if (editingObjectName != null) {
+                            } else {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    Text(
+                                        text = "📦 $pName ($propType) = null",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                     OutlinedButton(
-                                        onClick = { viewModel.createAndLinkSubObject(editingObjectName!!, pName, propType) },
+                                        onClick = {
+                                            val subClassDef = classDefsList[propType]
+                                            val subProps = mutableMapOf<String, Any>()
+                                            subClassDef?.properties?.forEach { (sName, sType) ->
+                                                subProps[sName] = createTypedPropertyValue(sType, "")
+                                            }
+                                            val targetName = objNameInput.ifEmpty { "újObjektum" }
+                                            val createdSubObj = ObjectInstance(
+                                                name = "${targetName}_$pName",
+                                                className = propType,
+                                                properties = subProps
+                                            )
+                                            objPropsState = objPropsState + (pName to createdSubObj)
+                                            if (editingObjectName != null) {
+                                                viewModel.createAndLinkSubObject(editingObjectName!!, pName, propType)
+                                            }
+                                        },
                                         shape = RoundedCornerShape(8.dp)
                                     ) {
                                         Text("➕ Alobjektum Létrehozása ($propType)", fontSize = 11.sp)
                                     }
                                 }
                             }
+                        } else {
+                            val displayVal = getPropertyValueAsString(pVal)
+                            OutlinedTextField(
+                                value = displayVal,
+                                onValueChange = { newV ->
+                                    val typedVal = createTypedPropertyValue(propType, newV)
+                                    objPropsState = objPropsState + (pName to typedVal)
+                                },
+                                label = { Text("$pName ($propType)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
                         }
                     }
                 }
@@ -1606,8 +1644,8 @@ fun MathTreeApp(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         SuggestionChip(
-                            onClick = { ruleTextInput = "if zöldAlma.szín == \"zöld\" then conclude that zöldAlma.szín = \"piros\"" },
-                            label = { Text("zöldAlma.szín minta", fontSize = 11.sp) }
+                            onClick = { ruleTextInput = "if zöldAlmafa.almák.szín == \"zöld\" then conclude that zöldAlmafa.almák.szín = \"piros\"" },
+                            label = { Text("zöldAlmafa.almák.szín minta", fontSize = 11.sp) }
                         )
                         SuggestionChip(
                             onClick = { ruleTextInput = "if isHot == true then invoke Klíma rules" },
@@ -1843,7 +1881,7 @@ fun MathTreeApp(
                         value = funcBodyInput,
                         onValueChange = { funcBodyInput = it },
                         label = { Text("Kifejezés törzse (pl. 2 * x + 3)") },
-                        placeholder = { Text("pl.: x") },
+                        placeholder = { Text("pl.: 2 * x") },
                         singleLine = true
                     )
                 }

@@ -33,16 +33,17 @@ data class ClassDef(
 
 /**
  * Objektum Példány (ObjectInstance) adatmodell:
- * Egy ClassDef alapján létrejött példány a mezők konkrét gépelt értékeivel (NumberNode, BooleanNode, StringNode, etc.).
+ * Egy ClassDef alapján létrejött példány a mezők konkrét gépelt értékeivel (NumberNode, BooleanNode, StringNode, beágyazott ObjectInstance).
  */
 data class ObjectInstance(
     val name: String,                            // Objektum neve (pl. "zöldAlma", "zöldAlmafa")
     val className: String,                       // Az Osztály (ClassDef) neve (pl. "Alma")
-    val properties: Map<String, Any> = emptyMap() // Mezőnév -> Típusos Érték (NumberNode, BooleanNode, StringNode, String, etc.)
+    val properties: Map<String, Any> = emptyMap() // Mezőnév -> Típusos Érték (NumberNode, StringNode, beágyazott ObjectInstance, etc.)
 ) {
     fun toJsonString(): String {
         val propsStr = properties.toMap().entries.joinToString(",") { (k, v) ->
             val valStr = when (v) {
+                is ObjectInstance -> v.toJsonString()
                 is ExpressionNode -> "\"${escapeJson(v.getValue().toDisplayString())}\""
                 is Value -> "\"${escapeJson(v.toDisplayString())}\""
                 else -> "\"${escapeJson(v.toString())}\""
@@ -59,7 +60,16 @@ data class ObjectInstance(
             val className = map["className"]?.toString() ?: "ClassDef"
             val props = mutableMapOf<String, Any>()
             (map["properties"] as? Map<String, Any?>)?.forEach { (k, v) ->
-                props[k] = v ?: ""
+                if (v is Map<*, *>) {
+                    val subObjMap = v as Map<String, Any?>
+                    if (subObjMap.containsKey("className") && subObjMap.containsKey("properties")) {
+                        props[k] = ObjectInstance.fromMap(subObjMap)
+                    } else {
+                        props[k] = v
+                    }
+                } else {
+                    props[k] = v ?: ""
+                }
             }
             return ObjectInstance(name, className, props)
         }
@@ -115,6 +125,7 @@ fun parseVariableValue(inputStr: String): Value {
 
 fun getPropertyValueAsString(propValue: Any?): String {
     return when (propValue) {
+        is ObjectInstance -> propValue.name
         is ExpressionNode -> propValue.getValue().toDisplayString()
         is Value -> propValue.toDisplayString()
         is Number -> propValue.toString()
@@ -125,6 +136,7 @@ fun getPropertyValueAsString(propValue: Any?): String {
 
 fun getPropertyValueAsValue(propValue: Any?): Value {
     return when (propValue) {
+        is ObjectInstance -> Value.Text(propValue.name)
         is ExpressionNode -> propValue.getValue()
         is Value -> propValue
         is Number -> Value.Number(propValue.toDouble())
@@ -646,15 +658,16 @@ data class Simulation(
                 )
             ),
             objects = mapOf(
-                "zöldAlma" to ObjectInstance(
-                    name = "zöldAlma",
-                    className = "Alma",
-                    properties = mapOf("szín" to StringNode("zöld"), "súly" to NumberNode(150.0))
-                ),
                 "zöldAlmafa" to ObjectInstance(
                     name = "zöldAlmafa",
                     className = "Almafa",
-                    properties = mapOf("almák" to StringNode("zöldAlma"))
+                    properties = mapOf(
+                        "almák" to ObjectInstance(
+                            name = "zöldAlmafa_almák",
+                            className = "Alma",
+                            properties = mapOf("szín" to StringNode("zöld"), "súly" to NumberNode(150.0))
+                        )
+                    )
                 )
             )
         ),

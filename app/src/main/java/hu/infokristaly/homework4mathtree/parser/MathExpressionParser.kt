@@ -656,9 +656,13 @@ fun resolveObjectPropertyPath(
         if (partIdx == parts.size - 1) {
             return getPropertyValueAsValue(propValueAny)
         } else {
-            val nextObjName = getPropertyValueAsString(propValueAny).trim().removeSurrounding("\"").removeSurrounding("'")
-            val nextObj = ws.objects[nextObjName] ?: return null
-            currentObj = nextObj
+            if (propValueAny is ObjectInstance) {
+                currentObj = propValueAny
+            } else {
+                val nextObjName = getPropertyValueAsString(propValueAny).trim().removeSurrounding("\"").removeSurrounding("'")
+                val nextObj = ws.objects[nextObjName] ?: return null
+                currentObj = nextObj
+            }
             partIdx++
         }
     }
@@ -690,33 +694,48 @@ fun updateObjectPropertyPath(
 
     if (partIdx >= parts.size) return simulation
 
-    val currentObjName = parts[partIdx]
-    var currentObj = ws.objects[currentObjName] ?: return simulation
-    partIdx++
+    val rootObjName = parts[partIdx]
+    val rootObj = ws.objects[rootObjName] ?: return simulation
 
-    val objChain = mutableListOf<ObjectInstance>()
-    objChain.add(currentObj)
+    val updatedRootObj = updateNestedObjectProperty(rootObj, parts.subList(partIdx + 1, parts.size), newValueStr, ws)
 
-    while (partIdx < parts.size - 1) {
-        val propName = parts[partIdx]
-        val propValueAny = currentObj.properties[propName] ?: return simulation
-        val nextObjName = getPropertyValueAsString(propValueAny).trim().removeSurrounding("\"").removeSurrounding("'")
-        val nextObj = ws.objects[nextObjName] ?: return simulation
-        currentObj = nextObj
-        objChain.add(currentObj)
-        partIdx++
-    }
-
-    val finalPropName = parts[partIdx]
-    val targetObj = objChain.last()
-    val propType = ws.classDefs[targetObj.className]?.properties?.get(finalPropName) ?: "StringNode"
-    val typedVal = createTypedPropertyValue(propType, newValueStr)
-    val updatedProps = targetObj.properties + (finalPropName to typedVal)
-    val updatedObj = targetObj.copy(properties = updatedProps)
-
-    val updatedObjects = ws.objects + (updatedObj.name to updatedObj)
+    val updatedObjects = ws.objects + (rootObjName to updatedRootObj)
     val updatedWs = ws.copy(objects = updatedObjects)
     val updatedWorkspaces = simulation.workspaces + (wsName to updatedWs)
 
     return simulation.copy(workspaces = updatedWorkspaces)
+}
+
+private fun updateNestedObjectProperty(
+    obj: ObjectInstance,
+    pathSegments: List<String>,
+    newValueStr: String,
+    ws: Workspace
+): ObjectInstance {
+    if (pathSegments.isEmpty()) return obj
+
+    val propName = pathSegments[0]
+
+    if (pathSegments.size == 1) {
+        val propType = ws.classDefs[obj.className]?.properties?.get(propName) ?: "StringNode"
+        val typedVal = createTypedPropertyValue(propType, newValueStr)
+        val updatedProps = obj.properties + (propName to typedVal)
+        return obj.copy(properties = updatedProps)
+    } else {
+        val existingPropVal = obj.properties[propName]
+        if (existingPropVal is ObjectInstance) {
+            val updatedSubObj = updateNestedObjectProperty(existingPropVal, pathSegments.subList(1, pathSegments.size), newValueStr, ws)
+            val updatedProps = obj.properties + (propName to updatedSubObj)
+            return obj.copy(properties = updatedProps)
+        } else if (existingPropVal != null) {
+            val subObjName = getPropertyValueAsString(existingPropVal).trim().removeSurrounding("\"").removeSurrounding("'")
+            val subObj = ws.objects[subObjName]
+            if (subObj != null) {
+                val updatedSubObj = updateNestedObjectProperty(subObj, pathSegments.subList(1, pathSegments.size), newValueStr, ws)
+                val updatedProps = obj.properties + (propName to updatedSubObj)
+                return obj.copy(properties = updatedProps)
+            }
+        }
+        return obj
+    }
 }

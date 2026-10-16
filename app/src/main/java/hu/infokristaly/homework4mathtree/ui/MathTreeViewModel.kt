@@ -331,11 +331,17 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
         updateCurrentWorkspace(currentWs)
     }
 
-    fun updateObjectProperty(objectName: String, propName: String, propValueStr: String) {
-        val targetObj = activeWorkspace.objects[objectName] ?: return
-        val updatedProps = targetObj.properties + (propName to propValueStr)
-        val updatedObj = targetObj.copy(properties = updatedProps)
-        addOrUpdateObject(updatedObj)
+    fun updateObjectProperty(propertyPath: String, newValueStr: String) {
+        val updatedSim = updateObjectPropertyPath(
+            path = propertyPath,
+            newValueStr = newValueStr,
+            currentWorkspace = activeWorkspace,
+            simulation = simulation
+        )
+        simulation = updatedSim
+        autoDetectVariables()
+        evaluateRules()
+        autoSaveSimulation()
     }
 
     fun createAndLinkSubObject(parentObjName: String, propName: String, targetClassName: String) {
@@ -349,16 +355,16 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
             subObjProps[pName] = createTypedPropertyValue(pType, "")
         }
 
-        val newSubObj = ObjectInstance(
+        val embeddedSubObj = ObjectInstance(
             name = subObjName,
             className = targetClassName,
             properties = subObjProps
         )
 
-        val updatedParentProps = parentObj.properties + (propName to subObjName)
+        val updatedParentProps = parentObj.properties + (propName to embeddedSubObj)
         val updatedParentObj = parentObj.copy(properties = updatedParentProps)
 
-        val updatedObjects = activeWorkspace.objects + (newSubObj.name to newSubObj) + (updatedParentObj.name to updatedParentObj)
+        val updatedObjects = activeWorkspace.objects + (updatedParentObj.name to updatedParentObj)
         val currentWs = activeWorkspace.copy(objects = updatedObjects)
         updateCurrentWorkspace(currentWs)
     }
