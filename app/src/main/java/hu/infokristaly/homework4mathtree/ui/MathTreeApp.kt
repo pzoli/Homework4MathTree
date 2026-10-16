@@ -33,6 +33,8 @@ import hu.infokristaly.homework4mathtree.model.ObjectInstance
 import hu.infokristaly.homework4mathtree.model.RuleParser
 import hu.infokristaly.homework4mathtree.model.Timer
 import hu.infokristaly.homework4mathtree.model.UserFunctionData
+import hu.infokristaly.homework4mathtree.model.createTypedPropertyValue
+import hu.infokristaly.homework4mathtree.model.getPropertyValueAsString
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -141,7 +143,7 @@ fun MathTreeApp(
     var editingObjectName by rememberSaveable { mutableStateOf<String?>(null) }
     var objNameInput by rememberSaveable { mutableStateOf("") }
     var objClassInput by rememberSaveable { mutableStateOf("") }
-    var objPropsState by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var objPropsState by remember { mutableStateOf<Map<String, Any>>(emptyMap()) }
 
     var ruleDialogTab by remember { mutableIntStateOf(0) }
 
@@ -580,7 +582,10 @@ fun MathTreeApp(
                                 editingObjectName = null
                                 objNameInput = "újObjektum"
                                 objClassInput = defaultClass
-                                val initialProps = classDefsList[defaultClass]?.properties?.mapValues { "" } ?: emptyMap()
+                                val initialProps = mutableMapOf<String, Any>()
+                                classDefsList[defaultClass]?.properties?.forEach { (pName, pType) ->
+                                    initialProps[pName] = createTypedPropertyValue(pType, "")
+                                }
                                 objPropsState = initialProps
                                 showObjectDialog = true
                             }
@@ -647,6 +652,9 @@ fun MathTreeApp(
                                     }
 
                                     obj.properties.forEach { (propName, propVal) ->
+                                        val propType = classDefsList[obj.className]?.properties?.get(propName) ?: "StringNode"
+                                        val displayStr = getPropertyValueAsString(propVal)
+
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             verticalAlignment = Alignment.CenterVertically,
@@ -660,12 +668,81 @@ fun MathTreeApp(
                                             )
                                             VariableValueInputField(
                                                 varName = "${obj.name}.$propName",
-                                                initialValue = propVal,
+                                                initialValue = displayStr,
                                                 onValueCommit = { newVal ->
-                                                    viewModel.updateObjectProperty(obj.name, propName, newVal)
+                                                    val typedVal = createTypedPropertyValue(propType, newVal)
+                                                    viewModel.updateObjectProperty(obj.name, propName, getPropertyValueAsString(typedVal))
                                                 },
                                                 modifier = Modifier.weight(1f)
                                             )
+                                        }
+
+                                        // Ha a propType egy ClassDef neve (pl. "Alma"):
+                                        if (classDefsList.containsKey(propType)) {
+                                            val subObjName = displayStr.trim().removeSurrounding("\"").removeSurrounding("'")
+                                            val subObj = objectsList[subObjName]
+                                            if (subObj != null) {
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(start = 16.dp, top = 4.dp, bottom = 4.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "└─ Alobjektum tulajdonságok (${obj.name}.$propName -> $subObjName):",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.primary
+                                                    )
+                                                    subObj.properties.forEach { (subPropName, subPropVal) ->
+                                                        val subPropType = classDefsList[subObj.className]?.properties?.get(subPropName) ?: "StringNode"
+                                                        val subDisplayStr = getPropertyValueAsString(subPropVal)
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = "    ${obj.name}.$propName.$subPropName =",
+                                                                fontWeight = FontWeight.Bold,
+                                                                fontSize = 12.sp,
+                                                                fontFamily = FontFamily.Monospace,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                            VariableValueInputField(
+                                                                varName = "${obj.name}.$propName.$subPropName",
+                                                                initialValue = subDisplayStr,
+                                                                onValueCommit = { newSubVal ->
+                                                                    val typedSubVal = createTypedPropertyValue(subPropType, newSubVal)
+                                                                    viewModel.updateObjectProperty(subObj.name, subPropName, getPropertyValueAsString(typedSubVal))
+                                                                },
+                                                                modifier = Modifier.weight(1f)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                // Nincs létrehozott alobjektum -> gomb az alobjektum létrehozásához
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(start = 16.dp, top = 2.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                ) {
+                                                    Text(
+                                                        text = "  ${obj.name}.$propName = null (Nincs alobjektum)",
+                                                        fontSize = 12.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                    OutlinedButton(
+                                                        onClick = { viewModel.createAndLinkSubObject(obj.name, propName, propType) },
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    ) {
+                                                        Text("➕ Alobjektum Létrehozása ($propType)", fontSize = 11.sp)
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1155,8 +1232,14 @@ fun MathTreeApp(
         )
     }
 
-    // Új / Szerkesztendő ClassDef (Osztály) párbeszédablak
+    // Új / Szerkesztendő ClassDef (Osztály) párbeszédablak Típus Választó Dropdown-nal
     if (showClassDefDialog) {
+        val builtInNodeTypes = remember { listOf("NumberNode", "BooleanNode", "StringNode", "VariableNode") }
+        val availablePropertyTypes = remember(classDefsList) {
+            (builtInNodeTypes + classDefsList.keys).distinct()
+        }
+        var propTypeDropdownExpanded by remember { mutableStateOf(false) }
+
         AlertDialog(
             onDismissRequest = { showClassDefDialog = false },
             title = {
@@ -1204,13 +1287,36 @@ fun MathTreeApp(
                             modifier = Modifier.weight(1f),
                             singleLine = true
                         )
-                        OutlinedTextField(
-                            value = newCdPropType,
-                            onValueChange = { newCdPropType = it.trim() },
-                            label = { Text("Típus (pl. StringNode, Alma)") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true
-                        )
+
+                        ExposedDropdownMenuBox(
+                            expanded = propTypeDropdownExpanded,
+                            onExpandedChange = { propTypeDropdownExpanded = !propTypeDropdownExpanded },
+                            modifier = Modifier.weight(1.2f)
+                        ) {
+                            OutlinedTextField(
+                                value = newCdPropType,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Típus") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = propTypeDropdownExpanded) },
+                                modifier = Modifier.menuAnchor()
+                            )
+                            ExposedDropdownMenu(
+                                expanded = propTypeDropdownExpanded,
+                                onDismissRequest = { propTypeDropdownExpanded = false }
+                            ) {
+                                availablePropertyTypes.forEach { typeOpt ->
+                                    DropdownMenuItem(
+                                        text = { Text(typeOpt) },
+                                        onClick = {
+                                            newCdPropType = typeOpt
+                                            propTypeDropdownExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
                         Button(
                             onClick = {
                                 if (newCdPropName.isNotEmpty() && newCdPropType.isNotEmpty()) {
@@ -1278,8 +1384,11 @@ fun MathTreeApp(
                                 onClick = {
                                     objClassInput = cdName
                                     if (editingObjectName == null) {
-                                        val newProps = classDefsList[cdName]?.properties?.mapValues { "" } ?: emptyMap()
-                                        objPropsState = newProps
+                                        val initialTypedProps = mutableMapOf<String, Any>()
+                                        classDefsList[cdName]?.properties?.forEach { (pName, pType) ->
+                                            initialTypedProps[pName] = createTypedPropertyValue(pType, "")
+                                        }
+                                        objPropsState = initialTypedProps
                                     }
                                 },
                                 label = { Text(cdName) }
@@ -1290,15 +1399,66 @@ fun MathTreeApp(
                     Text(text = "Tulajdonság Értékek (Beállítás):", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
 
                     objPropsState.forEach { (pName, pVal) ->
+                        val propType = classDefsList[objClassInput]?.properties?.get(pName) ?: "StringNode"
+                        val displayVal = getPropertyValueAsString(pVal)
+
                         OutlinedTextField(
-                            value = pVal,
+                            value = displayVal,
                             onValueChange = { newV ->
-                                objPropsState = objPropsState + (pName to newV)
+                                val typedVal = createTypedPropertyValue(propType, newV)
+                                objPropsState = objPropsState + (pName to typedVal)
                             },
-                            label = { Text("$pName érték") },
+                            label = { Text("$pName ($propType)") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
+
+                        // Ha a propType egy ClassDef neve (pl. "Alma"):
+                        if (classDefsList.containsKey(propType)) {
+                            val subObjName = displayVal.trim().removeSurrounding("\"").removeSurrounding("'")
+                            val subObj = objectsList[subObjName]
+                            if (subObj != null) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 16.dp, top = 4.dp, bottom = 4.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = "└─ Alobjektum tulajdonságok ($pName -> $subObjName):",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    subObj.properties.forEach { (subPropName, subPropVal) ->
+                                        val subPropType = classDefsList[subObj.className]?.properties?.get(subPropName) ?: "StringNode"
+                                        val subDisplayStr = getPropertyValueAsString(subPropVal)
+                                        OutlinedTextField(
+                                            value = subDisplayStr,
+                                            onValueChange = { newSubV ->
+                                                val typedSubVal = createTypedPropertyValue(subPropType, newSubV)
+                                                viewModel.updateObjectProperty(subObj.name, subPropName, getPropertyValueAsString(typedSubVal))
+                                            },
+                                            label = { Text("    $pName.$subPropName ($subPropType)") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            singleLine = true
+                                        )
+                                    }
+                                }
+                            } else if (editingObjectName != null) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { viewModel.createAndLinkSubObject(editingObjectName!!, pName, propType) },
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text("➕ Alobjektum Létrehozása ($propType)", fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             },
@@ -1465,6 +1625,10 @@ fun MathTreeApp(
                             onClick = { ruleTextInput = "if x1 <= 10 then conclude that x1 = x1 + 2" },
                             label = { Text("x1 = x1 + 2 (Chaining)", fontSize = 11.sp) }
                         )
+                        SuggestionChip(
+                            onClick = { ruleTextInput = "unconditionally conclude that x1 = 10 + y" },
+                            label = { Text("unconditionally minta", fontSize = 11.sp) }
+                        )
                     }
 
                     // EGYETLEN SZÖVEGBEVITELI MEZŐ A SZABÁLYNAK
@@ -1475,7 +1639,7 @@ fun MathTreeApp(
                             ruleDialogError = null
                         },
                         label = { Text("Szabály Szövege (if...then...)") },
-                        placeholder = { Text("pl.: if zöldAlma.szín == \"zöld\" then conclude that zöldAlma.szín = \"piros\"") },
+                        placeholder = { Text("pl.: if x1 <= 10 then conclude that x1 = x1 + 2") },
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 3,
                         maxLines = 5,
@@ -1679,7 +1843,7 @@ fun MathTreeApp(
                         value = funcBodyInput,
                         onValueChange = { funcBodyInput = it },
                         label = { Text("Kifejezés törzse (pl. 2 * x + 3)") },
-                        placeholder = { Text("pl.: 2 * x") },
+                        placeholder = { Text("pl.: x") },
                         singleLine = true
                     )
                 }

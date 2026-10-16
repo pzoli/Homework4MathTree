@@ -16,6 +16,7 @@ import hu.infokristaly.homework4mathtree.model.Timer
 import hu.infokristaly.homework4mathtree.model.UserFunctionData
 import hu.infokristaly.homework4mathtree.model.Value
 import hu.infokristaly.homework4mathtree.model.Workspace
+import hu.infokristaly.homework4mathtree.model.createTypedPropertyValue
 import hu.infokristaly.homework4mathtree.parser.MathExpressionParser
 import hu.infokristaly.homework4mathtree.parser.UserFunction
 import hu.infokristaly.homework4mathtree.parser.updateObjectPropertyPath
@@ -335,6 +336,31 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
         val updatedProps = targetObj.properties + (propName to propValueStr)
         val updatedObj = targetObj.copy(properties = updatedProps)
         addOrUpdateObject(updatedObj)
+    }
+
+    fun createAndLinkSubObject(parentObjName: String, propName: String, targetClassName: String) {
+        val parentObj = activeWorkspace.objects[parentObjName] ?: return
+        val targetClassDef = activeWorkspace.classDefs[targetClassName] ?: return
+
+        val subObjName = "${parentObjName}_$propName"
+        val subObjProps = mutableMapOf<String, Any>()
+
+        targetClassDef.properties.forEach { (pName, pType) ->
+            subObjProps[pName] = createTypedPropertyValue(pType, "")
+        }
+
+        val newSubObj = ObjectInstance(
+            name = subObjName,
+            className = targetClassName,
+            properties = subObjProps
+        )
+
+        val updatedParentProps = parentObj.properties + (propName to subObjName)
+        val updatedParentObj = parentObj.copy(properties = updatedParentProps)
+
+        val updatedObjects = activeWorkspace.objects + (newSubObj.name to newSubObj) + (updatedParentObj.name to updatedParentObj)
+        val currentWs = activeWorkspace.copy(objects = updatedObjects)
+        updateCurrentWorkspace(currentWs)
     }
 
     /**

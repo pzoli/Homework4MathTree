@@ -12,13 +12,14 @@ data class ClassDef(
     val properties: Map<String, String> = emptyMap() // Mezőnév -> Típusnév (pl. "szín" -> "StringNode", "súly" -> "NumberNode", "almák" -> "Alma")
 ) {
     fun toJsonString(): String {
-        val propsStr = properties.entries.joinToString(",") { (k, v) ->
+        val propsStr = properties.toMap().entries.joinToString(",") { (k, v) ->
             "\"${escapeJson(k)}\":\"${escapeJson(v)}\""
         }
         return "{\"name\":\"${escapeJson(name)}\",\"properties\":{$propsStr}}"
     }
 
     companion object {
+        @Suppress("UNCHECKED_CAST")
         fun fromMap(map: Map<String, Any?>): ClassDef {
             val name = map["name"]?.toString() ?: "ClassDef"
             val props = mutableMapOf<String, String>()
@@ -32,30 +33,104 @@ data class ClassDef(
 
 /**
  * Objektum Példány (ObjectInstance) adatmodell:
- * Egy ClassDef alapján létrejött példány a mezők konkrét értékeivel.
+ * Egy ClassDef alapján létrejött példány a mezők konkrét gépelt értékeivel (NumberNode, BooleanNode, StringNode, etc.).
  */
 data class ObjectInstance(
     val name: String,                            // Objektum neve (pl. "zöldAlma", "zöldAlmafa")
     val className: String,                       // Az Osztály (ClassDef) neve (pl. "Alma")
-    val properties: Map<String, String> = emptyMap() // Mezőnév -> Érték string (pl. "szín" -> "\"zöld\"", "súly" -> "150", "almák" -> "zöldAlma")
+    val properties: Map<String, Any> = emptyMap() // Mezőnév -> Típusos Érték (NumberNode, BooleanNode, StringNode, String, etc.)
 ) {
     fun toJsonString(): String {
-        val propsStr = properties.entries.joinToString(",") { (k, v) ->
-            "\"${escapeJson(k)}\":\"${escapeJson(v)}\""
+        val propsStr = properties.toMap().entries.joinToString(",") { (k, v) ->
+            val valStr = when (v) {
+                is ExpressionNode -> "\"${escapeJson(v.getValue().toDisplayString())}\""
+                is Value -> "\"${escapeJson(v.toDisplayString())}\""
+                else -> "\"${escapeJson(v.toString())}\""
+            }
+            "\"${escapeJson(k)}\":$valStr"
         }
         return "{\"name\":\"${escapeJson(name)}\",\"className\":\"${escapeJson(className)}\",\"properties\":{$propsStr}}"
     }
 
     companion object {
+        @Suppress("UNCHECKED_CAST")
         fun fromMap(map: Map<String, Any?>): ObjectInstance {
             val name = map["name"]?.toString() ?: "Object"
             val className = map["className"]?.toString() ?: "ClassDef"
-            val props = mutableMapOf<String, String>()
+            val props = mutableMapOf<String, Any>()
             (map["properties"] as? Map<String, Any?>)?.forEach { (k, v) ->
-                props[k] = v?.toString() ?: ""
+                props[k] = v ?: ""
             }
             return ObjectInstance(name, className, props)
         }
+    }
+}
+
+/**
+ * Segédfüggvények a típusos tulajdonság értékek példányosításához és megjelenítéséhez.
+ */
+fun createTypedPropertyValue(propType: String, inputStr: String): Any {
+    val trimmed = inputStr.trim()
+    return when (propType) {
+        "NumberNode" -> {
+            val num = trimmed.toDoubleOrNull() ?: 0.0
+            NumberNode(num)
+        }
+        "BooleanNode" -> {
+            val b = trimmed.lowercase() == "true" || trimmed.lowercase() == "igaz" || trimmed == "1"
+            BooleanNode(b)
+        }
+        "StringNode" -> {
+            val str = trimmed.removeSurrounding("\"").removeSurrounding("'")
+            StringNode(str)
+        }
+        "VariableNode" -> {
+            VariableNode(trimmed, Value.Text(trimmed))
+        }
+        else -> {
+            StringNode(trimmed.removeSurrounding("\"").removeSurrounding("'"))
+        }
+    }
+}
+
+fun parseVariableValue(inputStr: String): Value {
+    val trimmed = inputStr.trim()
+    if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
+        (trimmed.startsWith("'") && trimmed.endsWith("'"))
+    ) {
+        return Value.Text(trimmed.substring(1, trimmed.length - 1))
+    }
+    val num = trimmed.toDoubleOrNull()
+    if (num != null) {
+        return Value.Number(num)
+    }
+    if (trimmed.equals("true", ignoreCase = true) || trimmed.equals("igaz", ignoreCase = true)) {
+        return Value.Bool(true)
+    }
+    if (trimmed.equals("false", ignoreCase = true) || trimmed.equals("hamis", ignoreCase = true)) {
+        return Value.Bool(false)
+    }
+    return Value.Text(trimmed)
+}
+
+fun getPropertyValueAsString(propValue: Any?): String {
+    return when (propValue) {
+        is ExpressionNode -> propValue.getValue().toDisplayString()
+        is Value -> propValue.toDisplayString()
+        is Number -> propValue.toString()
+        is Boolean -> propValue.toString()
+        else -> propValue?.toString() ?: ""
+    }
+}
+
+fun getPropertyValueAsValue(propValue: Any?): Value {
+    return when (propValue) {
+        is ExpressionNode -> propValue.getValue()
+        is Value -> propValue
+        is Number -> Value.Number(propValue.toDouble())
+        is Boolean -> Value.Bool(propValue)
+        is String -> parseVariableValue(propValue)
+        else -> Value.Text(propValue?.toString() ?: "")
     }
 }
 
@@ -136,7 +211,7 @@ data class Rule(
         val focusStr = if (focusLabel != null) ",\"focusLabel\":\"${escapeJson(focusLabel)}\"" else ""
         val timerActStr = if (timerAction != null) ",\"timerAction\":\"${escapeJson(timerAction)}\"" else ""
         val timerNameStr = if (timerName != null) ",\"timerName\":\"${escapeJson(timerName)}\"" else ""
-        val refVarsStr = referencedVariables.joinToString(",") { "\"${escapeJson(it)}\"" }
+        val refVarsStr = referencedVariables.toList().joinToString(",") { "\"${escapeJson(it)}\"" }
 
         return "{" +
             "\"id\":\"${escapeJson(id)}\"," +
@@ -430,17 +505,17 @@ data class Workspace(
     val objects: Map<String, ObjectInstance> = emptyMap()
 ) {
     fun toJsonString(): String {
-        val varsStr = variables.entries.joinToString(",") { (k, v) ->
+        val varsStr = variables.toMap().entries.joinToString(",") { (k, v) ->
             "\"${escapeJson(k)}\":\"${escapeJson(v)}\""
         }
-        val funcsStr = functions.joinToString(",") { f ->
-            val paramsStr = f.parameters.joinToString(",") { "\"${escapeJson(it)}\"" }
+        val funcsStr = functions.toList().joinToString(",") { f ->
+            val paramsStr = f.parameters.toList().joinToString(",") { "\"${escapeJson(it)}\"" }
             "{\"name\":\"${escapeJson(f.name)}\",\"parameters\":[$paramsStr],\"expressionBody\":\"${escapeJson(f.expressionBody)}\"}"
         }
-        val rulesStr = rules.joinToString(",") { it.toJsonString() }
-        val timersStr = timers.joinToString(",") { it.toJsonString() }
-        val classDefsStr = classDefs.values.joinToString(",") { it.toJsonString() }
-        val objectsStr = objects.values.joinToString(",") { it.toJsonString() }
+        val rulesStr = rules.toList().joinToString(",") { it.toJsonString() }
+        val timersStr = timers.toList().joinToString(",") { it.toJsonString() }
+        val classDefsStr = classDefs.toMap().values.joinToString(",") { it.toJsonString() }
+        val objectsStr = objects.toMap().values.joinToString(",") { it.toJsonString() }
         return "{\"name\":\"${escapeJson(name)}\",\"variables\":{$varsStr},\"functions\":[$funcsStr],\"rules\":[$rulesStr],\"timers\":[$timersStr],\"classDefs\":[$classDefsStr],\"objects\":[$objectsStr]}"
     }
 
@@ -574,12 +649,12 @@ data class Simulation(
                 "zöldAlma" to ObjectInstance(
                     name = "zöldAlma",
                     className = "Alma",
-                    properties = mapOf("szín" to "\"zöld\"", "súly" to "150")
+                    properties = mapOf("szín" to StringNode("zöld"), "súly" to NumberNode(150.0))
                 ),
                 "zöldAlmafa" to ObjectInstance(
                     name = "zöldAlmafa",
                     className = "Almafa",
-                    properties = mapOf("almák" to "zöldAlma")
+                    properties = mapOf("almák" to StringNode("zöldAlma"))
                 )
             )
         ),
@@ -611,7 +686,7 @@ data class Simulation(
      * Exportálja a szimuláció teljes tartalmát JSON string formátumba.
      */
     fun toJsonString(): String {
-        val wsStr = workspaces.values.joinToString(",") { it.toJsonString() }
+        val wsStr = workspaces.toMap().values.joinToString(",") { it.toJsonString() }
         return "{\"activeWorkspaceName\":\"${escapeJson(activeWorkspaceName)}\",\"workspaces\":[$wsStr]}"
     }
 

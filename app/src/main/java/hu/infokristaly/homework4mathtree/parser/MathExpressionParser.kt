@@ -66,7 +66,7 @@ class MathExpressionParser {
         val parserInstance = ParserInstance(tokens, variables, userFunctions, isDegreeMode, simulation)
         val rootNode = parserInstance.parseExpression()
         if (!parserInstance.isAtEnd()) {
-            throw IllegalArgumentException("Érvénytelen kifejezés a következő szimbólumnál: ${parserInstance.peek()}")
+            throw IllegalArgumentException("Érvénytelen kifejezés a következő szimbólnál: ${parserInstance.peek()}")
         }
         return rootNode
     }
@@ -651,12 +651,12 @@ fun resolveObjectPropertyPath(
     while (partIdx < parts.size) {
         val obj = currentObj ?: return null
         val propName = parts[partIdx]
-        val propValueStr = obj.properties[propName] ?: return null
+        val propValueAny = obj.properties[propName] ?: return null
 
         if (partIdx == parts.size - 1) {
-            return parseVariableValue(propValueStr)
+            return getPropertyValueAsValue(propValueAny)
         } else {
-            val nextObjName = propValueStr.trim().removeSurrounding("\"").removeSurrounding("'")
+            val nextObjName = getPropertyValueAsString(propValueAny).trim().removeSurrounding("\"").removeSurrounding("'")
             val nextObj = ws.objects[nextObjName] ?: return null
             currentObj = nextObj
             partIdx++
@@ -699,8 +699,8 @@ fun updateObjectPropertyPath(
 
     while (partIdx < parts.size - 1) {
         val propName = parts[partIdx]
-        val propValueStr = currentObj.properties[propName] ?: return simulation
-        val nextObjName = propValueStr.trim().removeSurrounding("\"").removeSurrounding("'")
+        val propValueAny = currentObj.properties[propName] ?: return simulation
+        val nextObjName = getPropertyValueAsString(propValueAny).trim().removeSurrounding("\"").removeSurrounding("'")
         val nextObj = ws.objects[nextObjName] ?: return simulation
         currentObj = nextObj
         objChain.add(currentObj)
@@ -709,7 +709,9 @@ fun updateObjectPropertyPath(
 
     val finalPropName = parts[partIdx]
     val targetObj = objChain.last()
-    val updatedProps = targetObj.properties + (finalPropName to newValueStr)
+    val propType = ws.classDefs[targetObj.className]?.properties?.get(finalPropName) ?: "StringNode"
+    val typedVal = createTypedPropertyValue(propType, newValueStr)
+    val updatedProps = targetObj.properties + (finalPropName to typedVal)
     val updatedObj = targetObj.copy(properties = updatedProps)
 
     val updatedObjects = ws.objects + (updatedObj.name to updatedObj)
@@ -717,24 +719,4 @@ fun updateObjectPropertyPath(
     val updatedWorkspaces = simulation.workspaces + (wsName to updatedWs)
 
     return simulation.copy(workspaces = updatedWorkspaces)
-}
-
-fun parseVariableValue(inputStr: String): Value {
-    val trimmed = inputStr.trim()
-    if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
-        (trimmed.startsWith("'") && trimmed.endsWith("'"))
-    ) {
-        return Value.Text(trimmed.substring(1, trimmed.length - 1))
-    }
-    val num = trimmed.toDoubleOrNull()
-    if (num != null) {
-        return Value.Number(num)
-    }
-    if (trimmed.equals("true", ignoreCase = true) || trimmed.equals("igaz", ignoreCase = true)) {
-        return Value.Bool(true)
-    }
-    if (trimmed.equals("false", ignoreCase = true) || trimmed.equals("hamis", ignoreCase = true)) {
-        return Value.Bool(false)
-    }
-    return Value.Text(trimmed)
 }

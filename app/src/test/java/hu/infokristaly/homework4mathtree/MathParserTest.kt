@@ -451,4 +451,28 @@ class MathParserTest {
         val tree4 = parser.parse("zöldAlma.szín", simulation = updatedSim)
         assertEquals("piros", tree4.getValue().toDisplayString())
     }
+
+    @Test
+    fun testTypedObjectProperties() {
+        val numVal = createTypedPropertyValue("NumberNode", "150")
+        assertTrue(numVal is NumberNode)
+        assertEquals(150.0, (numVal as NumberNode).numberValue, 0.0001)
+
+        val boolVal = createTypedPropertyValue("BooleanNode", "true")
+        assertTrue(boolVal is BooleanNode)
+        assertTrue((boolVal as BooleanNode).booleanValue)
+
+        val strVal = createTypedPropertyValue("StringNode", "zöld")
+        assertTrue(strVal is StringNode)
+        assertEquals("zöld", (strVal as StringNode).stringValue)
+
+        val obj = ObjectInstance(
+            name = "pirosAlma",
+            className = "Alma",
+            properties = mapOf("szín" to StringNode("piros"), "súly" to NumberNode(200.0))
+        )
+
+        assertEquals("piros", getPropertyValueAsString(obj.properties["szín"]))
+        assertEquals("200", getPropertyValueAsString(obj.properties["súly"]))
+    }
 }
