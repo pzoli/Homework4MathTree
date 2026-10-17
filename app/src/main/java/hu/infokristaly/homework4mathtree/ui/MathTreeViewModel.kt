@@ -369,7 +369,9 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
     fun removeObject(objectName: String) {
         val updatedObjects = activeWorkspace.objects - objectName
         val currentWs = activeWorkspace.copy(objects = updatedObjects)
-        updateCurrentWorkspace(currentWs)
+        val updatedWorkspaces = simulation.workspaces + (currentWs.name to currentWs)
+        simulation = simulation.copy(workspaces = updatedWorkspaces)
+        autoSaveSimulation()
     }
 
     fun updateObjectProperty(propertyPath: String, newValueStr: String) {
@@ -386,7 +388,15 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun nullifyObjectProperty(propertyPath: String) {
-        updateObjectProperty(propertyPath, "")
+        val updatedSim = updateObjectPropertyPath(
+            path = propertyPath,
+            newValueStr = "",
+            currentWorkspace = activeWorkspace,
+            simulation = simulation
+        )
+        simulation = updatedSim
+        autoDetectVariables()
+        autoSaveSimulation()
     }
 
     fun createAndLinkSubObject(parentPath: String, propName: String, targetClassName: String) {
