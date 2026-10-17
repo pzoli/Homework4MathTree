@@ -108,7 +108,9 @@ fun MathTreeApp(
     // Változó hozzáadása dialog állapotok
     var showAddVarDialog by rememberSaveable { mutableStateOf(false) }
     var newVarName by rememberSaveable { mutableStateOf("") }
+    var newVarType by rememberSaveable { mutableStateOf("StringNode") }
     var newVarValue by rememberSaveable { mutableStateOf("") }
+    var varTypeDropdownExpanded by remember { mutableStateOf(false) }
 
     // Függvény hozzáadása / szerkesztése dialog állapotok
     var showFuncDialog by rememberSaveable { mutableStateOf(false) }
@@ -921,7 +923,7 @@ fun MathTreeApp(
                 }
             }
 
-            // Változó szerkesztő szekció
+            // Változó szerkesztő szekció (Típusos Támogatással)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -944,7 +946,12 @@ fun MathTreeApp(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSecondaryContainer
                         )
-                        TextButton(onClick = { showAddVarDialog = true }) {
+                        TextButton(onClick = {
+                            newVarName = ""
+                            newVarType = "StringNode"
+                            newVarValue = ""
+                            showAddVarDialog = true
+                        }) {
                             Text("+ Új változó", fontWeight = FontWeight.Bold)
                         }
                     }
@@ -957,55 +964,129 @@ fun MathTreeApp(
                         )
                     } else {
                         variableInputs.forEach { (varName, varValStr) ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            val varType = activeWorkspace.getVariableType(varName)
+                            val isClassDefType = classDefsList.containsKey(varType)
+
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Row(
+                                    modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.widthIn(min = 140.dp, max = 180.dp)
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Box(
-                                        contentAlignment = Alignment.Center,
-                                        modifier = Modifier
-                                            .size(32.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF00796B))
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
+                                        Box(
+                                            contentAlignment = Alignment.Center,
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF00796B))
+                                        ) {
+                                            Text(
+                                                text = varName.take(2),
+                                                color = Color.White,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp
+                                            )
+                                        }
+
                                         Text(
-                                            text = varName.take(2),
-                                            color = Color.White,
+                                            text = varName,
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 14.sp
+                                            fontSize = 15.sp,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+
+                                        SuggestionChip(
+                                            onClick = {},
+                                            label = { Text("Típus: $varType", fontSize = 11.sp) }
                                         )
                                     }
 
-                                    Text(
-                                        text = "$varName =",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        maxLines = 1
-                                    )
+                                    IconButton(
+                                        onClick = {
+                                            viewModel.removeVariable(varName)
+                                        }
+                                    ) {
+                                        Text("🗑️", fontSize = 16.sp)
+                                    }
                                 }
 
-                                VariableValueInputField(
-                                    varName = varName,
-                                    initialValue = varValStr,
-                                    onValueCommit = { newVal ->
-                                        viewModel.updateVariableInput(varName, newVal)
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                )
-
-                                IconButton(
-                                    onClick = {
-                                        viewModel.removeVariable(varName)
+                                if (isClassDefType) {
+                                    // HA A VÁLTOZÓ TÍPUSA CLASSDEF (PL. ALMAFA VAGY ALMA)
+                                    val varObj = objectsList[varName]
+                                    if (varObj != null) {
+                                        RecursiveObjectPropertiesEditor(
+                                            parentPath = varName,
+                                            properties = varObj.properties,
+                                            className = varObj.className,
+                                            classDefsList = classDefsList,
+                                            objectsList = objectsList,
+                                            depth = 1,
+                                            onPropertyCommit = { path, valStr ->
+                                                viewModel.updateObjectProperty(path, valStr)
+                                            },
+                                            onCreateSubObject = { pPath, pName, targetClass ->
+                                                viewModel.createAndLinkSubObject(pPath, pName, targetClass)
+                                            },
+                                            onNullifySubObject = { path ->
+                                                viewModel.nullifyObjectProperty(path)
+                                            }
+                                        )
+                                    } else {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(start = 12.dp, top = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(
+                                                text = "📦 $varName ($varType) = null",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            OutlinedButton(
+                                                onClick = {
+                                                    viewModel.updateVariableType(varName, varType)
+                                                },
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Text("➕ Alobjektum Létrehozása ($varType)", fontSize = 11.sp)
+                                            }
+                                        }
                                     }
-                                ) {
-                                    Text("🗑️", fontSize = 16.sp)
+                                } else {
+                                    // PRIMITÍV TÍPUSÚ VÁLTOZÓ
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = "  Érték =",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            modifier = Modifier.widthIn(min = 80.dp)
+                                        )
+                                        VariableValueInputField(
+                                            varName = varName,
+                                            initialValue = varValStr,
+                                            onValueCommit = { newVal ->
+                                                viewModel.updateVariableInput(varName, newVal)
+                                            },
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1824,6 +1905,11 @@ fun MathTreeApp(
 
     // Új változó hozzáadása párbeszédablak
     if (showAddVarDialog) {
+        val builtInTypes = remember { listOf("NumberNode", "BooleanNode", "StringNode", "VariableNode") }
+        val availableTypes = remember(classDefsList) {
+            (builtInTypes + classDefsList.keys).distinct()
+        }
+
         AlertDialog(
             onDismissRequest = { showAddVarDialog = false },
             title = { Text("Új változó hozzáadása") },
@@ -1832,15 +1918,47 @@ fun MathTreeApp(
                     OutlinedTextField(
                         value = newVarName,
                         onValueChange = { newVarName = it.trim() },
-                        label = { Text("Változó neve (pl. v1, a, x)") },
+                        label = { Text("Változó neve (pl. v1, v2, x)") },
                         singleLine = true
                     )
-                    OutlinedTextField(
-                        value = newVarValue,
-                        onValueChange = { newVarValue = it },
-                        label = { Text("Kezdő értéke (szám vagy \"szöveg\")") },
-                        singleLine = true
-                    )
+
+                    ExposedDropdownMenuBox(
+                        expanded = varTypeDropdownExpanded,
+                        onExpandedChange = { varTypeDropdownExpanded = !varTypeDropdownExpanded },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = newVarType,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Változó Típusa") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = varTypeDropdownExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = varTypeDropdownExpanded,
+                            onDismissRequest = { varTypeDropdownExpanded = false }
+                        ) {
+                            availableTypes.forEach { typeOpt ->
+                                DropdownMenuItem(
+                                    text = { Text(typeOpt) },
+                                    onClick = {
+                                        newVarType = typeOpt
+                                        varTypeDropdownExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    if (!classDefsList.containsKey(newVarType)) {
+                        OutlinedTextField(
+                            value = newVarValue,
+                            onValueChange = { newVarValue = it },
+                            label = { Text("Kezdő értéke (szám vagy \"szöveg\")") },
+                            singleLine = true
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -1848,11 +1966,13 @@ fun MathTreeApp(
                     onClick = {
                         if (newVarName.isNotEmpty()) {
                             viewModel.addVariable(
-                                newVarName,
-                                newVarValue.ifEmpty { "teszt" }
+                                varName = newVarName,
+                                valueStr = newVarValue,
+                                typeName = newVarType
                             )
                             newVarName = ""
                             newVarValue = ""
+                            newVarType = "StringNode"
                             showAddVarDialog = false
                         }
                     }

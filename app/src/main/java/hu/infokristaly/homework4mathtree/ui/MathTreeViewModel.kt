@@ -213,13 +213,52 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
         updateCurrentWorkspace(currentWs)
     }
 
-    fun addVariable(varName: String, valueStr: String) {
-        updateVariableInput(varName, valueStr)
+    fun addVariable(varName: String, valueStr: String, typeName: String = "StringNode") {
+        val updatedVars = activeWorkspace.variables + (varName to valueStr)
+        val updatedTypes = activeWorkspace.variableTypes + (varName to typeName)
+        var currentWs = activeWorkspace.copy(variables = updatedVars, variableTypes = updatedTypes)
+
+        if (activeWorkspace.classDefs.containsKey(typeName) && !activeWorkspace.objects.containsKey(varName)) {
+            val subClassDef = activeWorkspace.classDefs[typeName]
+            val subProps = mutableMapOf<String, Any>()
+            subClassDef?.properties?.forEach { (sName, sType) ->
+                subProps[sName] = createTypedPropertyValue(sType, "")
+            }
+            val varObj = ObjectInstance(name = varName, className = typeName, properties = subProps)
+            val updatedObjects = activeWorkspace.objects + (varName to varObj)
+            currentWs = currentWs.copy(objects = updatedObjects)
+        }
+
+        updateCurrentWorkspace(currentWs)
+    }
+
+    fun updateVariableType(varName: String, typeName: String) {
+        val updatedTypes = activeWorkspace.variableTypes + (varName to typeName)
+        var currentWs = activeWorkspace.copy(variableTypes = updatedTypes)
+
+        if (activeWorkspace.classDefs.containsKey(typeName) && !activeWorkspace.objects.containsKey(varName)) {
+            val subClassDef = activeWorkspace.classDefs[typeName]
+            val subProps = mutableMapOf<String, Any>()
+            subClassDef?.properties?.forEach { (sName, sType) ->
+                subProps[sName] = createTypedPropertyValue(sType, "")
+            }
+            val varObj = ObjectInstance(name = varName, className = typeName, properties = subProps)
+            val updatedObjects = activeWorkspace.objects + (varName to varObj)
+            currentWs = currentWs.copy(objects = updatedObjects)
+        }
+
+        updateCurrentWorkspace(currentWs)
     }
 
     fun removeVariable(varName: String) {
         val updatedVars = activeWorkspace.variables - varName
-        val currentWs = activeWorkspace.copy(variables = updatedVars)
+        val updatedTypes = activeWorkspace.variableTypes - varName
+        val updatedObjects = activeWorkspace.objects - varName
+        val currentWs = activeWorkspace.copy(
+            variables = updatedVars,
+            variableTypes = updatedTypes,
+            objects = updatedObjects
+        )
         updateCurrentWorkspace(currentWs)
     }
 

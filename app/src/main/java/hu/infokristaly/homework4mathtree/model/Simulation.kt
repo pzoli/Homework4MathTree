@@ -63,7 +63,7 @@ data class ObjectInstance(
                 if (v is Map<*, *>) {
                     val subObjMap = v as Map<String, Any?>
                     if (subObjMap.containsKey("className") && subObjMap.containsKey("properties")) {
-                        props[k] = ObjectInstance.fromMap(subObjMap)
+                        props[k] = fromMap(subObjMap)
                     } else {
                         props[k] = v
                     }
@@ -552,14 +552,36 @@ data class UserFunctionData(
 data class Workspace(
     val name: String,
     val variables: Map<String, String> = emptyMap(),
+    val variableTypes: Map<String, String> = emptyMap(),
     val functions: List<UserFunctionData> = emptyList(),
     val rules: List<Rule> = emptyList(),
     val timers: List<Timer> = emptyList(),
     val classDefs: Map<String, ClassDef> = emptyMap(),
     val objects: Map<String, ObjectInstance> = emptyMap()
 ) {
+    fun getVariableType(varName: String): String {
+        val explicitType = variableTypes[varName]
+        if (!explicitType.isNullOrEmpty()) return explicitType
+
+        if (objects.containsKey(varName)) {
+            return objects[varName]?.className ?: "StringNode"
+        }
+
+        val valStr = variables[varName]?.trim() ?: ""
+        if (valStr.lowercase() == "true" || valStr.lowercase() == "false" || valStr.lowercase() == "igaz" || valStr.lowercase() == "hamis") {
+            return "BooleanNode"
+        }
+        if (valStr.toDoubleOrNull() != null) {
+            return "NumberNode"
+        }
+        return "StringNode"
+    }
+
     fun toJsonString(): String {
         val varsStr = variables.toMap().entries.joinToString(",") { (k, v) ->
+            "\"${escapeJson(k)}\":\"${escapeJson(v)}\""
+        }
+        val varTypesStr = variableTypes.toMap().entries.joinToString(",") { (k, v) ->
             "\"${escapeJson(k)}\":\"${escapeJson(v)}\""
         }
         val funcsStr = functions.toList().joinToString(",") { f ->
@@ -570,7 +592,7 @@ data class Workspace(
         val timersStr = timers.toList().joinToString(",") { it.toJsonString() }
         val classDefsStr = classDefs.toMap().values.joinToString(",") { it.toJsonString() }
         val objectsStr = objects.toMap().values.joinToString(",") { it.toJsonString() }
-        return "{\"name\":\"${escapeJson(name)}\",\"variables\":{$varsStr},\"functions\":[$funcsStr],\"rules\":[$rulesStr],\"timers\":[$timersStr],\"classDefs\":[$classDefsStr],\"objects\":[$objectsStr]}"
+        return "{\"name\":\"${escapeJson(name)}\",\"variables\":{$varsStr},\"variableTypes\":{$varTypesStr},\"functions\":[$funcsStr],\"rules\":[$rulesStr],\"timers\":[$timersStr],\"classDefs\":[$classDefsStr],\"objects\":[$objectsStr]}"
     }
 
     companion object {
@@ -581,6 +603,11 @@ data class Workspace(
             val varsMap = mutableMapOf<String, String>()
             (map["variables"] as? Map<String, Any?>)?.forEach { (k, v) ->
                 varsMap[k] = v?.toString() ?: ""
+            }
+
+            val varTypesMap = mutableMapOf<String, String>()
+            (map["variableTypes"] as? Map<String, Any?>)?.forEach { (k, v) ->
+                varTypesMap[k] = v?.toString() ?: "StringNode"
             }
 
             val funcsList = mutableListOf<UserFunctionData>()
@@ -613,7 +640,7 @@ data class Workspace(
                 objectsMap[obj.name] = obj
             }
 
-            return Workspace(name, varsMap, funcsList, rulesList, timersList, classDefsMap, objectsMap)
+            return Workspace(name, varsMap, varTypesMap, funcsList, rulesList, timersList, classDefsMap, objectsMap)
         }
     }
 }
@@ -628,6 +655,7 @@ data class Simulation(
         "Fő_Munkaterület" to Workspace(
             name = "Fő_Munkaterület",
             variables = mapOf("v1" to "teszt", "a" to "1", "b" to "3", "temp" to "28", "isHot" to "true", "x1" to "2"),
+            variableTypes = mapOf("v1" to "StringNode", "a" to "NumberNode", "b" to "NumberNode", "temp" to "NumberNode", "isHot" to "BooleanNode", "x1" to "NumberNode"),
             functions = listOf(
                 UserFunctionData("függvény1", listOf("x"), "2 * x")
             ),
@@ -696,7 +724,7 @@ data class Simulation(
                 ),
                 "Almafa" to ClassDef(
                     name = "Almafa",
-                    properties = mapOf("almák" to "Alma")
+                    properties = mapOf("csemete" to "Almafa", "almák" to "Alma")
                 )
             ),
             objects = mapOf(
@@ -716,6 +744,7 @@ data class Simulation(
         "Fizika" to Workspace(
             name = "Fizika",
             variables = mapOf("g" to "9.81", "m" to "5"),
+            variableTypes = mapOf("g" to "NumberNode", "m" to "NumberNode"),
             functions = listOf(
                 UserFunctionData("f1", listOf("x"), "3 * x"),
                 UserFunctionData("f2", listOf("b"), "b ^ 2")
