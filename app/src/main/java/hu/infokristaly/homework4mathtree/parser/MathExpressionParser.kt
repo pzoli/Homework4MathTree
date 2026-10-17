@@ -718,7 +718,11 @@ private fun updateNestedObjectProperty(
 
     if (pathSegments.size == 1) {
         val propType = ws.classDefs[obj.className]?.properties?.get(propName) ?: "StringNode"
-        val typedVal = createTypedPropertyValue(propType, newValueStr)
+        val typedVal = if (ws.classDefs.containsKey(propType) && newValueStr.isEmpty()) {
+            StringNode("")
+        } else {
+            createTypedPropertyValue(propType, newValueStr)
+        }
         val updatedProps = obj.properties + (propName to typedVal)
         return obj.copy(properties = updatedProps)
     } else {

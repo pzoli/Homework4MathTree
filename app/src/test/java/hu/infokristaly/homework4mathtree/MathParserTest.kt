@@ -516,5 +516,15 @@ class MathParserTest {
         )
         val tree2 = parser.parse("zöldAlmafa.csemete.almák.szín", simulation = sim)
         assertEquals("lila", tree2.getValue().toDisplayString())
+
+        // Nullify sub-object property
+        sim = hu.infokristaly.homework4mathtree.parser.updateObjectPropertyPath(
+            path = "zöldAlmafa.csemete",
+            newValueStr = "",
+            currentWorkspace = activeWs,
+            simulation = sim
+        )
+        val tree3 = parser.parse("zöldAlmafa.csemete", simulation = sim)
+        assertEquals("", tree3.getValue().toDisplayString())
     }
 }

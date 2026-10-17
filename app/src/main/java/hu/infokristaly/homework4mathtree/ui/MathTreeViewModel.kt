@@ -344,6 +344,10 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
         autoSaveSimulation()
     }
 
+    fun nullifyObjectProperty(propertyPath: String) {
+        updateObjectProperty(propertyPath, "")
+    }
+
     fun createAndLinkSubObject(parentPath: String, propName: String, targetClassName: String) {
         val rootObjName = parentPath.split(".")[0]
         val rootObj = activeWorkspace.objects[rootObjName] ?: return

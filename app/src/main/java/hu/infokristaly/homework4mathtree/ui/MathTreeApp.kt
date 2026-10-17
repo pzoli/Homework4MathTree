@@ -31,12 +31,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import hu.infokristaly.homework4mathtree.model.ClassDef
 import hu.infokristaly.homework4mathtree.model.ObjectInstance
 import hu.infokristaly.homework4mathtree.model.RuleParser
+import hu.infokristaly.homework4mathtree.model.StringNode
 import hu.infokristaly.homework4mathtree.model.Timer
 import hu.infokristaly.homework4mathtree.model.UserFunctionData
-import hu.infokristaly.homework4mathtree.model.updateLocalNestedObject
-import hu.infokristaly.homework4mathtree.model.updateLocalNestedPropertyValue
 import hu.infokristaly.homework4mathtree.model.createTypedPropertyValue
 import hu.infokristaly.homework4mathtree.model.getPropertyValueAsString
+import hu.infokristaly.homework4mathtree.model.updateLocalNestedObject
+import hu.infokristaly.homework4mathtree.model.updateLocalNestedPropertyValue
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -666,6 +667,9 @@ fun MathTreeApp(
                                         },
                                         onCreateSubObject = { pPath, pName, targetClass ->
                                             viewModel.createAndLinkSubObject(pPath, pName, targetClass)
+                                        },
+                                        onNullifySubObject = { path ->
+                                            viewModel.nullifyObjectProperty(path)
                                         }
                                     )
                                 }
@@ -1381,6 +1385,22 @@ fun MathTreeApp(
                             if (editingObjectName != null) {
                                 viewModel.createAndLinkSubObject(pPath, pName, targetClass)
                             }
+                        },
+                        onNullifySubObject = { path ->
+                            val pathSegments = path.split(".")
+                            val relativePath = if (pathSegments.isNotEmpty() && pathSegments[0] == objNameInput) {
+                                pathSegments.subList(1, pathSegments.size)
+                            } else {
+                                pathSegments
+                            }
+
+                            if (relativePath.isNotEmpty()) {
+                                objPropsState = updateLocalNestedPropertyValue(objPropsState, relativePath, StringNode(""))
+                            }
+
+                            if (editingObjectName != null) {
+                                viewModel.nullifyObjectProperty(path)
+                            }
                         }
                     )
                 }
@@ -1862,7 +1882,8 @@ private fun RecursiveObjectPropertiesEditor(
     objectsList: Map<String, ObjectInstance>,
     depth: Int = 0,
     onPropertyCommit: (path: String, valueStr: String) -> Unit,
-    onCreateSubObject: (parentPath: String, propName: String, targetClassName: String) -> Unit
+    onCreateSubObject: (parentPath: String, propName: String, targetClassName: String) -> Unit,
+    onNullifySubObject: (path: String) -> Unit
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -1878,7 +1899,7 @@ private fun RecursiveObjectPropertiesEditor(
                     is ObjectInstance -> propVal
                     else -> {
                         val subName = getPropertyValueAsString(propVal).trim().removeSurrounding("\"").removeSurrounding("'")
-                        objectsList[subName]
+                        if (subName.isEmpty()) null else objectsList[subName]
                     }
                 }
 
@@ -1891,12 +1912,24 @@ private fun RecursiveObjectPropertiesEditor(
                             .padding(start = startPadding, top = 4.dp, bottom = 4.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text(
-                            text = "📦 $fullPath ($propType):",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "📦 $fullPath ($propType):",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            TextButton(
+                                onClick = { onNullifySubObject(fullPath) },
+                                contentPadding = PaddingValues(horizontal = 6.dp)
+                            ) {
+                                Text("❌ Null", fontSize = 11.sp, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                            }
+                        }
 
                         // RECURSIVE CALL FOR DEEPER LEVELS
                         RecursiveObjectPropertiesEditor(
@@ -1907,7 +1940,8 @@ private fun RecursiveObjectPropertiesEditor(
                             objectsList = objectsList,
                             depth = depth + 1,
                             onPropertyCommit = onPropertyCommit,
-                            onCreateSubObject = onCreateSubObject
+                            onCreateSubObject = onCreateSubObject,
+                            onNullifySubObject = onNullifySubObject
                         )
                     }
                 } else {
@@ -1933,7 +1967,7 @@ private fun RecursiveObjectPropertiesEditor(
                     }
                 }
             } else {
-                // Primitív értékadó tulajdonság (NumberNode, StringNode, BooleanNode, etc.)
+                // Primitív értékadó tulajdonság
                 val displayStr = getPropertyValueAsString(propVal)
                 val startPadding = (depth * 12 + 8).dp
 
