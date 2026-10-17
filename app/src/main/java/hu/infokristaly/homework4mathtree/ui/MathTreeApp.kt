@@ -410,6 +410,7 @@ fun MathTreeApp(
                                                 color = Color(0xFFE8F5E9)
                                             ) {
                                                 val statusText = when {
+                                                    rule.isCreateObjectRule -> "✅ Feltétel: IGAZ -> Objektum létrehozva (${rule.createObjectClass}) -> ${rule.createObjectTarget}"
                                                     rule.isTimerActionRule -> "✅ Feltétel: IGAZ -> Időzítő ${if (rule.timerAction.equals("start", ignoreCase = true)) "elindítva" else "leállítva"}: ${rule.timerName}"
                                                     rule.isUnconditional -> "✅ Feltétel nélküli értékadás -> ${rule.targetVariable} = ${r.assignedValue?.toDisplayString()}"
                                                     rule.isFocusRule -> "✅ Feltétel: IGAZ -> Meghívott címke: ${rule.focusLabel}"
@@ -1630,6 +1631,14 @@ fun MathTreeApp(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         SuggestionChip(
+                            onClick = { ruleTextInput = "unconditionally create object from Alma into variable alma1" },
+                            label = { Text("create object variable minta", fontSize = 11.sp) }
+                        )
+                        SuggestionChip(
+                            onClick = { ruleTextInput = "if x1 > 10 then create object from Alma into property zöldAlmafa.almák" },
+                            label = { Text("create object property minta", fontSize = 11.sp) }
+                        )
+                        SuggestionChip(
                             onClick = { ruleTextInput = "if zöldAlmafa.almák.szín == \"zöld\" then conclude that zöldAlmafa.almák.szín = \"piros\"" },
                             label = { Text("zöldAlmafa.almák.szín minta", fontSize = 11.sp) }
                         )
@@ -1663,7 +1672,7 @@ fun MathTreeApp(
                             ruleDialogError = null
                         },
                         label = { Text("Szabály Szövege (if...then...)") },
-                        placeholder = { Text("pl.: if x1 <= 10 then conclude that x1 = x1 + 2") },
+                        placeholder = { Text("pl.: unconditionally create object from Alma into variable alma1") },
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 3,
                         maxLines = 5,
@@ -1686,10 +1695,14 @@ fun MathTreeApp(
                             "then invoke ",
                             "then start timer ",
                             "then stop timer ",
+                            "then create object from ",
                             "unconditionally conclude that ",
                             "unconditionally invoke ",
                             "unconditionally start timer ",
                             "unconditionally stop timer ",
+                            "unconditionally create object from ",
+                            "into variable ",
+                            "into property ",
                             "and ",
                             "or ",
                             "not "

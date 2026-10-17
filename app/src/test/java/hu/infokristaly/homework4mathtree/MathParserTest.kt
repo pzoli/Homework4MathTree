@@ -527,4 +527,34 @@ class MathParserTest {
         val tree3 = parser.parse("zöldAlmafa.csemete", simulation = sim)
         assertEquals("", tree3.getValue().toDisplayString())
     }
+
+    @Test
+    fun testCreateObjectRuleParsing() {
+        val rule1 = RuleParser.parseRuleText(
+            name = "Teszt Rule 1",
+            text = "unconditionally create object from Alma into variable alma1"
+        )
+        assertTrue(rule1.isUnconditional)
+        assertTrue(rule1.isCreateObjectRule)
+        assertEquals("Alma", rule1.createObjectClass)
+        assertEquals("alma1", rule1.createObjectTarget)
+
+        val rule2 = RuleParser.parseRuleText(
+            name = "Teszt Rule 2",
+            text = "if x > 10 then create object from Alma into variable alma2"
+        )
+        assertFalse(rule2.isUnconditional)
+        assertTrue(rule2.isCreateObjectRule)
+        assertEquals("Alma", rule2.createObjectClass)
+        assertEquals("alma2", rule2.createObjectTarget)
+
+        val rule3 = RuleParser.parseRuleText(
+            name = "Teszt Rule 3",
+            text = "if x < 5 then create object from Alma into property zöldAlmafa.alma"
+        )
+        assertFalse(rule3.isUnconditional)
+        assertTrue(rule3.isCreateObjectRule)
+        assertEquals("Alma", rule3.createObjectClass)
+        assertEquals("zöldAlmafa.alma", rule3.createObjectTarget)
+    }
 }

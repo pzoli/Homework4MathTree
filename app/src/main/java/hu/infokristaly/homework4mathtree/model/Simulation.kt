@@ -227,7 +227,8 @@ data class Timer(
  * 1. Értékadó: "if <feltétel> then conclude that <változó> = <érték>"
  * 2. Meghívó/Fókuszáló: "if <feltétel> then invoke <címke> rules"
  * 3. Időzítő vezérlő: "if <feltétel> then start/stop timer <időzítő_név>"
- * 4. Feltétel nélküli: "unconditionally ..."
+ * 4. Objektum Példányosító: "if <feltétel> then create object from <ClassDef> into variable/property <cél>"
+ * 5. Feltétel nélküli: "unconditionally ..."
  */
 data class Rule(
     val id: String = UUID.randomUUID().toString(),
@@ -239,6 +240,8 @@ data class Rule(
     val focusLabel: String? = null,              // Ha "invoke <címke> rules" típusú szabály
     val timerAction: String? = null,             // "start" vagy "stop" ha időzítőt indít/állít le
     val timerName: String? = null,               // Az elindítandó vagy leállítandó időzítő neve
+    val createObjectClass: String? = null,       // Létrehozandó ClassDef neve (pl. "Alma")
+    val createObjectTarget: String? = null,      // Cél változó vagy tulajdonság név (pl. "alma1" vagy "zöldAlmafa.alma")
     val isUnconditional: Boolean = false,        // true esetén feltétel nélküli szabály
     val mayCauseChaining: Boolean = true,        // Szabályozza, hogy az értékadás indítson-e újabb szabály kiértékelést
     val referencedVariables: List<String> = emptyList(), // A feltételben (condition) hivatkozott változók
@@ -246,12 +249,15 @@ data class Rule(
 ) {
     val isFocusRule: Boolean get() = focusLabel != null
     val isTimerActionRule: Boolean get() = !timerAction.isNullOrEmpty() && !timerName.isNullOrEmpty()
+    val isCreateObjectRule: Boolean get() = !createObjectClass.isNullOrEmpty() && !createObjectTarget.isNullOrEmpty()
 
     /**
      * Visszaadja a szabály teljes szöveges formátumát.
      */
     fun toRuleText(): String {
         return when {
+            isCreateObjectRule && isUnconditional -> "unconditionally create object from $createObjectClass into ${if (createObjectTarget!!.contains(".")) "property $createObjectTarget" else "variable $createObjectTarget"}"
+            isCreateObjectRule -> "if $conditionExpression then create object from $createObjectClass into ${if (createObjectTarget!!.contains(".")) "property $createObjectTarget" else "variable $createObjectTarget"}"
             isTimerActionRule && isUnconditional -> "unconditionally $timerAction timer $timerName"
             isTimerActionRule -> "if $conditionExpression then $timerAction timer $timerName"
             isUnconditional && isFocusRule -> "unconditionally invoke $focusLabel rules"
@@ -265,6 +271,8 @@ data class Rule(
         val focusStr = if (focusLabel != null) ",\"focusLabel\":\"${escapeJson(focusLabel)}\"" else ""
         val timerActStr = if (timerAction != null) ",\"timerAction\":\"${escapeJson(timerAction)}\"" else ""
         val timerNameStr = if (timerName != null) ",\"timerName\":\"${escapeJson(timerName)}\"" else ""
+        val createClassStr = if (createObjectClass != null) ",\"createObjectClass\":\"${escapeJson(createObjectClass)}\"" else ""
+        val createTargetStr = if (createObjectTarget != null) ",\"createObjectTarget\":\"${escapeJson(createObjectTarget)}\"" else ""
         val refVarsStr = referencedVariables.toList().joinToString(",") { "\"${escapeJson(it)}\"" }
 
         return "{" +
@@ -281,6 +289,8 @@ data class Rule(
             focusStr +
             timerActStr +
             timerNameStr +
+            createClassStr +
+            createTargetStr +
             "}"
     }
 
@@ -301,6 +311,8 @@ data class Rule(
                 focusLabel = map["focusLabel"]?.toString(),
                 timerAction = map["timerAction"]?.toString(),
                 timerName = map["timerName"]?.toString(),
+                createObjectClass = map["createObjectClass"]?.toString(),
+                createObjectTarget = map["createObjectTarget"]?.toString(),
                 isUnconditional = map["isUnconditional"] as? Boolean ?: false,
                 mayCauseChaining = map["mayCauseChaining"] as? Boolean ?: true,
                 referencedVariables = refVars,
@@ -385,7 +397,21 @@ object RuleParser {
                 )
             }
 
-            // 1c. "unconditionally conclude that x1 = 10 + y"
+            // 1c. "unconditionally create object from <Class> into <target>"
+            if (restLower.startsWith("create object") || restLower.startsWith("create object from")) {
+                return parseCreateObjectClause(
+                    clauseText = rest,
+                    id = id,
+                    name = name,
+                    defaultLabel = defaultLabel,
+                    condition = "true",
+                    isUnconditional = true,
+                    mayCauseChaining = mayCauseChaining,
+                    refVars = emptyList()
+                )
+            }
+
+            // 1d. "unconditionally conclude that x1 = 10 + y"
             if (restLower.startsWith("conclude that")) {
                 rest = rest.substring(13).trim()
             } else if (restLower.startsWith("conclude")) {
@@ -498,7 +524,21 @@ object RuleParser {
             )
         }
 
-        // 2c. "conclude that <változó> = <kifejezés>"
+        // 2c. "create object from <Class> into <target>"
+        if (afterThenLower.startsWith("create object") || afterThenLower.startsWith("create object from")) {
+            return parseCreateObjectClause(
+                clauseText = afterThen,
+                id = id,
+                name = name,
+                defaultLabel = defaultLabel,
+                condition = condition,
+                isUnconditional = false,
+                mayCauseChaining = mayCauseChaining,
+                refVars = refVars
+            )
+        }
+
+        // 2d. "conclude that <változó> = <kifejezés>"
         var concludePart = afterThen
         if (afterThenLower.startsWith("conclude that")) {
             concludePart = afterThen.substring(13).trim()
@@ -530,6 +570,60 @@ object RuleParser {
             valueExpression = valExpr,
             focusLabel = null,
             isUnconditional = false,
+            mayCauseChaining = mayCauseChaining,
+            referencedVariables = refVars
+        )
+    }
+
+    private fun parseCreateObjectClause(
+        clauseText: String,
+        id: String,
+        name: String,
+        defaultLabel: String,
+        condition: String,
+        isUnconditional: Boolean,
+        mayCauseChaining: Boolean,
+        refVars: List<String>
+    ): Rule {
+        var rest = clauseText.trim()
+        val lower = rest.lowercase()
+
+        if (lower.startsWith("create object from ")) {
+            rest = rest.substring(19).trim()
+        } else if (lower.startsWith("create object ")) {
+            rest = rest.substring(14).trim()
+        }
+
+        val intoIndex = rest.lowercase().indexOf(" into ")
+        if (intoIndex == -1) {
+            throw IllegalArgumentException("A 'create object' szabálynak tartalmaznia kell az 'into' kulcsszót! Pl.: create object from Alma into variable alma1")
+        }
+
+        val classNamePart = rest.substring(0, intoIndex).trim()
+        var targetPart = rest.substring(intoIndex + 6).trim()
+        val targetLower = targetPart.lowercase()
+
+        if (targetLower.startsWith("variable ")) {
+            targetPart = targetPart.substring(9).trim()
+        } else if (targetLower.startsWith("property ")) {
+            targetPart = targetPart.substring(9).trim()
+        }
+
+        if (classNamePart.isEmpty()) {
+            throw IllegalArgumentException("Hiányzó Osztály (ClassDef) név a 'create object from' után!")
+        }
+        if (targetPart.isEmpty()) {
+            throw IllegalArgumentException("Hiányzó cél változó vagy tulajdonság név az 'into' után!")
+        }
+
+        return Rule(
+            id = id,
+            name = name,
+            label = defaultLabel,
+            conditionExpression = condition,
+            createObjectClass = classNamePart,
+            createObjectTarget = targetPart,
+            isUnconditional = isUnconditional,
             mayCauseChaining = mayCauseChaining,
             referencedVariables = refVars
         )

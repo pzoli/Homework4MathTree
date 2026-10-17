@@ -19,6 +19,8 @@ import hu.infokristaly.homework4mathtree.model.Workspace
 import hu.infokristaly.homework4mathtree.model.createTypedPropertyValue
 import hu.infokristaly.homework4mathtree.parser.MathExpressionParser
 import hu.infokristaly.homework4mathtree.parser.UserFunction
+import hu.infokristaly.homework4mathtree.parser.resolveObjectPropertyPath
+import hu.infokristaly.homework4mathtree.parser.updateObjectPropertyObject
 import hu.infokristaly.homework4mathtree.parser.updateObjectPropertyPath
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -571,6 +573,57 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
                                 }
                                 queue.addAll(focusRules)
                             }
+                        } else if (currentRule.isCreateObjectRule) {
+                            resultsMap[currentRule.id] = RuleResult(conditionMet = true)
+                            val targetClass = currentRule.createObjectClass!!
+                            val target = currentRule.createObjectTarget!!
+
+                            withContext(Dispatchers.Main) {
+                                val currentWs = simulation.getActiveWorkspace()
+                                val targetClassDef = currentWs.classDefs[targetClass]
+
+                                val alreadyExists = if (target.contains(".")) {
+                                    val resolvedVal = resolveObjectPropertyPath(target, currentWs, simulation)
+                                    resolvedVal != null && resolvedVal.toDisplayString().isNotEmpty()
+                                } else {
+                                    currentWs.objects.containsKey(target)
+                                }
+
+                                if (!alreadyExists && targetClassDef != null) {
+                                    val subProps = mutableMapOf<String, Any>()
+                                    targetClassDef.properties.forEach { (pName, pType) ->
+                                        subProps[pName] = createTypedPropertyValue(pType, "")
+                                    }
+
+                                    val newObjName = if (target.contains(".")) {
+                                        target.replace(".", "_")
+                                    } else {
+                                        target
+                                    }
+
+                                    val newObj = ObjectInstance(
+                                        name = newObjName,
+                                        className = targetClass,
+                                        properties = subProps
+                                    )
+
+                                    if (target.contains(".")) {
+                                        val updatedSim = updateObjectPropertyObject(
+                                            path = target,
+                                            newSubObj = newObj,
+                                            currentWorkspace = currentWs,
+                                            simulation = simulation
+                                        )
+                                        simulation = updatedSim
+                                    } else {
+                                        addVariable(varName = target, valueStr = newObjName, typeName = targetClass)
+                                        val updatedObjects = simulation.getActiveWorkspace().objects + (target to newObj)
+                                        val updatedWs = simulation.getActiveWorkspace().copy(objects = updatedObjects)
+                                        val updatedWorkspaces = simulation.workspaces + (updatedWs.name to updatedWs)
+                                        simulation = simulation.copy(workspaces = updatedWorkspaces)
+                                    }
+                                }
+                            }
                         } else {
                             val valueNode = parser.parse(
                                 input = currentRule.valueExpression,
@@ -674,7 +727,9 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
         val updatedWorkspaces = simulation.workspaces + (updatedWs.name to updatedWs)
         simulation = simulation.copy(workspaces = updatedWorkspaces)
         autoDetectVariables()
-        evaluateRules()
+        if (!isQueueProcessing) {
+            evaluateRules()
+        }
         autoSaveSimulation()
     }
 
