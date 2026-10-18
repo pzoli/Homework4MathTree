@@ -213,6 +213,7 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
         val updatedVars = activeWorkspace.variables + (varName to valueStr)
         val currentWs = activeWorkspace.copy(variables = updatedVars)
         updateCurrentWorkspace(currentWs)
+        evaluateRulesForChange(varName)
     }
 
     fun addVariable(varName: String, valueStr: String, typeName: String = "StringNode") {
@@ -302,14 +303,66 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
         }
         val currentWs = activeWorkspace.copy(rules = updatedRules)
         updateCurrentWorkspace(currentWs)
+
+        if (!rule.isUnconditional) {
+            enqueueAndProcessRules(listOf(rule))
+        } else {
+            validateRuleExpression(rule)
+        }
     }
 
     fun removeRule(index: Int) {
         if (index in activeWorkspace.rules.indices) {
+            val removedRule = activeWorkspace.rules[index]
             val updatedRules = activeWorkspace.rules.toMutableList()
             updatedRules.removeAt(index)
             val currentWs = activeWorkspace.copy(rules = updatedRules)
             updateCurrentWorkspace(currentWs)
+            val updatedResults = ruleResults - removedRule.id
+            ruleResults = updatedResults
+        }
+    }
+
+    fun validateRuleExpression(rule: Rule) {
+        try {
+            val userFuncMap = activeWorkspace.functions.associate {
+                it.name to UserFunction(it.name, it.parameters, it.expressionBody)
+            }
+            val valueVariables = activeWorkspace.variables.mapValues { parseVariableValue(it.value) }
+
+            if (!rule.isUnconditional && rule.conditionExpression.isNotEmpty()) {
+                parser.parse(
+                    input = rule.conditionExpression,
+                    variables = valueVariables,
+                    userFunctions = userFuncMap,
+                    isDegreeMode = isDegreeMode,
+                    simulation = simulation
+                )
+            }
+            if (rule.valueExpression.isNotEmpty() && !rule.isTimerActionRule && !rule.isFocusRule && !rule.isCreateObjectRule) {
+                parser.parse(
+                    input = rule.valueExpression,
+                    variables = valueVariables,
+                    userFunctions = userFuncMap,
+                    isDegreeMode = isDegreeMode,
+                    simulation = simulation
+                )
+            }
+            if (ruleResults[rule.id]?.errorMessage != null) {
+                val resultsMap = ruleResults.toMutableMap()
+                resultsMap.remove(rule.id)
+                ruleResults = resultsMap.toMap()
+            }
+        } catch (e: Exception) {
+            val resultsMap = ruleResults.toMutableMap()
+            resultsMap[rule.id] = RuleResult(conditionMet = false, errorMessage = e.message ?: "Hibás kifejezés")
+            ruleResults = resultsMap.toMap()
+        }
+    }
+
+    fun validateAllRules() {
+        activeWorkspace.rules.forEach { rule ->
+            validateRuleExpression(rule)
         }
     }
 
@@ -383,7 +436,7 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
         )
         simulation = updatedSim
         autoDetectVariables()
-        evaluateRules()
+        evaluateRulesForChange(propertyPath)
         autoSaveSimulation()
     }
 
@@ -504,6 +557,32 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
+     * Végrehajtja azon szabályok kiértékelését, amelyek feltételeiben (conditionExpression)
+     * kifejezetten hivatkozva van a megváltozott változóra vagy tulajdonság-útvonalra.
+     */
+    fun evaluateRulesForChange(changedPath: String) {
+        val dependentRules = activeWorkspace.rules.filter { rule ->
+            rule.isActive &&
+            !rule.isUnconditional &&
+            rule.referencedVariables.any { isPathReferenced(it, changedPath) }
+        }
+        if (dependentRules.isNotEmpty()) {
+            enqueueAndProcessRules(dependentRules)
+        }
+    }
+
+    private fun isPathReferenced(refVar: String, changedPath: String): Boolean {
+        val refLower = refVar.trim().lowercase()
+        val changedLower = changedPath.trim().lowercase()
+
+        if (refLower == changedLower) return true
+        if (changedLower.endsWith(".$refLower") || refLower.endsWith(".$changedLower")) return true
+        if (changedLower.startsWith("$refLower.") || refLower.startsWith("$changedLower.")) return true
+
+        return false
+    }
+
+    /**
      * Szabályok általános kiértékelése Aszinkron módon a Process Queue használatával.
      * Az 'unconditionally' (feltétel nélküli) szabályok kihagyásra kerülnek általános kiértékeléskor;
      * csak akkor hajtódnak végre, ha kifejezetten rájuk fókuszál a szimuláció (invoke <címke> rules).
@@ -511,6 +590,7 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
     fun evaluateRules() {
         val conditionalRules = activeWorkspace.rules.filter { !it.isUnconditional }
         enqueueAndProcessRules(conditionalRules)
+        validateAllRules()
     }
 
     /**
@@ -555,6 +635,16 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
                         simulation = simulation
                     )
                     val condMet = condNode.getValue().toBoolean()
+
+                    if (currentRule.valueExpression.isNotEmpty() && !currentRule.isTimerActionRule && !currentRule.isFocusRule && !currentRule.isCreateObjectRule) {
+                        parser.parse(
+                            input = currentRule.valueExpression,
+                            variables = valueVariables,
+                            userFunctions = userFuncMap,
+                            isDegreeMode = isDegreeMode,
+                            simulation = simulation
+                        )
+                    }
 
                     if (condMet) {
                         if (currentRule.isTimerActionRule) {
@@ -656,6 +746,17 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
                                     simulation = updatedSim
                                 }
                                 resultsMap[currentRule.id] = RuleResult(conditionMet = true, assignedValue = assignedVal)
+
+                                if (currentRule.mayCauseChaining) {
+                                    val target = currentRule.targetVariable
+                                    val dependentRules = activeWorkspace.rules.filter { dependentRule ->
+                                        dependentRule.isActive &&
+                                            !dependentRule.isUnconditional &&
+                                            dependentRule.referencedVariables.any { isPathReferenced(it, target) } &&
+                                            !queue.contains(dependentRule)
+                                    }
+                                    queue.addAll(dependentRules)
+                                }
                             } else {
                                 val oldValue = updatedVars[currentRule.targetVariable]
                                 val valueChanged = oldValue != newDisplayStr
@@ -664,10 +765,11 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
 
                                 // Ha a változó értéke megváltozott ÉS a szabály engedélyezi a chaining-et:
                                 if (valueChanged && currentRule.mayCauseChaining) {
+                                    val target = currentRule.targetVariable
                                     val dependentRules = activeWorkspace.rules.filter { dependentRule ->
                                         dependentRule.isActive &&
                                             !dependentRule.isUnconditional &&
-                                            dependentRule.referencedVariables.contains(currentRule.targetVariable) &&
+                                            dependentRule.referencedVariables.any { isPathReferenced(it, target) } &&
                                             !queue.contains(dependentRule)
                                     }
                                     queue.addAll(dependentRules)
@@ -678,7 +780,7 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
                         resultsMap[currentRule.id] = RuleResult(conditionMet = false)
                     }
                 } catch (e: Exception) {
-                    resultsMap[currentRule.id] = RuleResult(conditionMet = false, errorMessage = e.message)
+                    resultsMap[currentRule.id] = RuleResult(conditionMet = false, errorMessage = e.message ?: "Hibás kifejezés")
                 }
 
                 withContext(Dispatchers.Main) {
@@ -737,9 +839,6 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
         val updatedWorkspaces = simulation.workspaces + (updatedWs.name to updatedWs)
         simulation = simulation.copy(workspaces = updatedWorkspaces)
         autoDetectVariables()
-        if (!isQueueProcessing) {
-            evaluateRules()
-        }
         autoSaveSimulation()
     }
 
