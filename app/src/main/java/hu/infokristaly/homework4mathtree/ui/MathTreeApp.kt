@@ -30,7 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import hu.infokristaly.homework4mathtree.model.ClassDef
 import hu.infokristaly.homework4mathtree.model.ObjectInstance
-import hu.infokristaly.homework4mathtree.model.RuleParser
+import hu.infokristaly.homework4mathtree.model.Rule
 import hu.infokristaly.homework4mathtree.model.StringNode
 import hu.infokristaly.homework4mathtree.model.Timer
 import hu.infokristaly.homework4mathtree.model.UserFunctionData
@@ -56,6 +56,35 @@ fun MathTreeApp(
     val objectsList = viewModel.objectsList
     val ruleResults = viewModel.ruleResults
     val availableLabels = rulesList.map { it.label }.distinct()
+
+    val (extractedObjectPaths, extractedClassDefs) = remember(objectsList, classDefsList) {
+        val objectPaths = mutableListOf<String>()
+        fun traverseProps(prefix: String, props: Map<String, Any>) {
+            for ((key, value) in props) {
+                val fullPath = if (prefix.isEmpty()) key else "$prefix.$key"
+                objectPaths.add(fullPath)
+                when (value) {
+                    is ObjectInstance -> traverseProps(fullPath, value.properties)
+                    is Map<*, *> -> {
+                        @Suppress("UNCHECKED_CAST")
+                        (value as? Map<String, Any>)?.let { traverseProps(fullPath, it) }
+                    }
+                }
+            }
+        }
+        for ((objName, obj) in objectsList) {
+            traverseProps(objName, obj.properties)
+        }
+
+        val classItems = mutableListOf<String>()
+        for ((className, cd) in classDefsList) {
+            classItems.add(className)
+            for (pName in cd.properties.keys) {
+                classItems.add("$className.$pName")
+            }
+        }
+        Pair(objectPaths.distinct(), classItems.distinct())
+    }
 
     val isQueueProcessing = viewModel.isQueueProcessing
     val processQueueSize = viewModel.processQueueSize
@@ -101,6 +130,28 @@ fun MathTreeApp(
         }
     }
 
+    // Szabály Szerkesztő Activity indító (RuleEditorActivity)
+    val ruleEditorLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val data = result.data ?: return@rememberLauncherForActivityResult
+            val ruleIndex = data.getIntExtra(RuleEditorActivity.EXTRA_RULE_INDEX, -1)
+            val editingIndex = if (ruleIndex >= 0) ruleIndex else null
+
+            val rule = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                data.getSerializableExtra(RuleEditorActivity.EXTRA_RULE, Rule::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                data.getSerializableExtra(RuleEditorActivity.EXTRA_RULE) as? Rule
+            }
+
+            if (rule != null) {
+                viewModel.addOrUpdateRule(rule, editingIndex)
+            }
+        }
+    }
+
     // Munkaterület hozzáadása dialog
     var showAddWsDialog by rememberSaveable { mutableStateOf(false) }
     var newWsNameInput by rememberSaveable { mutableStateOf("") }
@@ -118,15 +169,6 @@ fun MathTreeApp(
     var funcNameInput by rememberSaveable { mutableStateOf("") }
     var funcParamsInput by rememberSaveable { mutableStateOf("") }
     var funcBodyInput by rememberSaveable { mutableStateOf("") }
-
-    // Szabály (Rule) hozzáadása / szerkesztése dialog állapotok
-    var showRuleDialog by rememberSaveable { mutableStateOf(false) }
-    var editingRuleIndex by rememberSaveable { mutableStateOf<Int?>(null) }
-    var ruleNameInput by rememberSaveable { mutableStateOf("") }
-    var ruleLabelInput by rememberSaveable { mutableStateOf("") }
-    var ruleTextInput by rememberSaveable { mutableStateOf("") }
-    var ruleChainingInput by rememberSaveable { mutableStateOf(true) }
-    var ruleDialogError by rememberSaveable { mutableStateOf<String?>(null) }
 
     // Időzítő (Timer) hozzáadása / szerkesztése dialog állapotok
     var showTimerDialog by rememberSaveable { mutableStateOf(false) }
@@ -308,13 +350,18 @@ fun MathTreeApp(
                     ) {
                         TextButton(
                             onClick = {
-                                editingRuleIndex = null
-                                ruleNameInput = "Szabály ${rulesList.size + 1}"
-                                ruleLabelInput = "Alapértelmezett"
-                                ruleTextInput = "if x1 <= 10 then conclude that x1 = x1 + 2"
-                                ruleChainingInput = true
-                                ruleDialogError = null
-                                showRuleDialog = true
+                                RuleEditorActivity.launch(
+                                    context = context,
+                                    launcher = ruleEditorLauncher,
+                                    defaultRuleName = "Szabály ${rulesList.size + 1}",
+                                    workspaceVars = variableInputs.keys.toList(),
+                                    workspaceFuncs = userFunctionsList.map { it.name },
+                                    workspaceTimers = timersList.map { it.name },
+                                    workspaceObjects = objectsList.keys.toList(),
+                                    workspaceObjectPaths = extractedObjectPaths,
+                                    classDefs = extractedClassDefs,
+                                    availableLabels = availableLabels
+                                )
                             }
                         ) {
                             Text("+ Új Szabály", fontWeight = FontWeight.Bold)
@@ -364,13 +411,20 @@ fun MathTreeApp(
                                         Row {
                                             IconButton(
                                                 onClick = {
-                                                    editingRuleIndex = index
-                                                    ruleNameInput = rule.name
-                                                    ruleLabelInput = rule.label
-                                                    ruleTextInput = rule.toRuleText()
-                                                    ruleChainingInput = rule.mayCauseChaining
-                                                    ruleDialogError = null
-                                                    showRuleDialog = true
+                                                    RuleEditorActivity.launch(
+                                                        context = context,
+                                                        launcher = ruleEditorLauncher,
+                                                        index = index,
+                                                        rule = rule,
+                                                        defaultRuleName = rule.name,
+                                                        workspaceVars = variableInputs.keys.toList(),
+                                                        workspaceFuncs = userFunctionsList.map { it.name },
+                                                        workspaceTimers = timersList.map { it.name },
+                                                        workspaceObjects = objectsList.keys.toList(),
+                                                        workspaceObjectPaths = extractedObjectPaths,
+                                                        classDefs = extractedClassDefs,
+                                                        availableLabels = availableLabels
+                                                    )
                                                 }
                                             ) {
                                                 Text("✏️", fontSize = 16.sp)
@@ -1581,241 +1635,7 @@ fun MathTreeApp(
         )
     }
 
-    // Új / Szerkesztendő Szabály párbeszédablak
-    if (showRuleDialog) {
-        AlertDialog(
-            onDismissRequest = { showRuleDialog = false },
-            title = {
-                Text(if (editingRuleIndex == null) "Új Szabály (Rule Editor)" else "Szabály szerkesztése")
-            },
-            text = {
-                Column(
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedTextField(
-                        value = ruleNameInput,
-                        onValueChange = { ruleNameInput = it },
-                        label = { Text("Szabály neve (pl. Szabály 1)") },
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = ruleLabelInput,
-                        onValueChange = { ruleLabelInput = it },
-                        label = { Text("Címke / Tag (pl. init, Klíma, Teszt)") },
-                        singleLine = true
-                    )
 
-                    // Láncolás (Chaining) engedélyezése
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Checkbox(
-                            checked = ruleChainingInput,
-                            onCheckedChange = { ruleChainingInput = it }
-                        )
-                        Text(
-                            text = "A változó módosulása indítson láncolást (Chaining)",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-
-                    // Minta beszúrás chip-ek
-                    Text(text = "Minta formátumok:", style = MaterialTheme.typography.labelSmall)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        SuggestionChip(
-                            onClick = { ruleTextInput = "unconditionally create object from Alma into variable alma1" },
-                            label = { Text("create object variable minta", fontSize = 11.sp) }
-                        )
-                        SuggestionChip(
-                            onClick = { ruleTextInput = "if x1 > 10 then create object from Alma into property zöldAlmafa.almák" },
-                            label = { Text("create object property minta", fontSize = 11.sp) }
-                        )
-                        SuggestionChip(
-                            onClick = { ruleTextInput = "if zöldAlmafa.almák.szín == \"zöld\" then conclude that zöldAlmafa.almák.szín = \"piros\"" },
-                            label = { Text("zöldAlmafa.almák.szín minta", fontSize = 11.sp) }
-                        )
-                        SuggestionChip(
-                            onClick = { ruleTextInput = "if isHot == true then invoke Klíma rules" },
-                            label = { Text("invoke Klíma rules minta", fontSize = 11.sp) }
-                        )
-                        SuggestionChip(
-                            onClick = { ruleTextInput = "if temp > 25 then start timer Klíma Időzítő" },
-                            label = { Text("start timer minta", fontSize = 11.sp) }
-                        )
-                        SuggestionChip(
-                            onClick = { ruleTextInput = "if temp <= 20 then stop timer Klíma Időzítő" },
-                            label = { Text("stop timer minta", fontSize = 11.sp) }
-                        )
-                        SuggestionChip(
-                            onClick = { ruleTextInput = "if x1 <= 10 then conclude that x1 = x1 + 2" },
-                            label = { Text("x1 = x1 + 2 (Chaining)", fontSize = 11.sp) }
-                        )
-                        SuggestionChip(
-                            onClick = { ruleTextInput = "unconditionally conclude that x1 = 10 + y" },
-                            label = { Text("unconditionally minta", fontSize = 11.sp) }
-                        )
-                    }
-
-                    // EGYETLEN SZÖVEGBEVITELI MEZŐ A SZABÁLYNAK
-                    OutlinedTextField(
-                        value = ruleTextInput,
-                        onValueChange = {
-                            ruleTextInput = it
-                            ruleDialogError = null
-                        },
-                        label = { Text("Szabály Szövege (if...then...)") },
-                        placeholder = { Text("pl.: unconditionally create object from Alma into variable alma1") },
-                        modifier = Modifier.fillMaxWidth(),
-                        minLines = 3,
-                        maxLines = 5,
-                        textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 13.sp)
-                    )
-
-                    // Prediktív Szövegbevitel (Predictive Autocomplete Suggestions)
-                    val currentWorkspaceVars = variableInputs.keys.toList()
-                    val currentWorkspaceFuncs = userFunctionsList.map { it.name }
-                    val currentWorkspaceTimers = timersList.map { it.name }
-                    val currentWorkspaceObjects = objectsList.keys.toList()
-                    val currentWorkspaceObjectPaths = objectsList.values.flatMap { obj ->
-                        obj.properties.keys.map { prop -> "${obj.name}.$prop" }
-                    }
-
-                    val allKeywordsAndTemplates = remember {
-                        listOf(
-                            "if ",
-                            "then conclude that ",
-                            "then invoke ",
-                            "then start timer ",
-                            "then stop timer ",
-                            "then create object from ",
-                            "unconditionally conclude that ",
-                            "unconditionally invoke ",
-                            "unconditionally start timer ",
-                            "unconditionally stop timer ",
-                            "unconditionally create object from ",
-                            "into variable ",
-                            "into property ",
-                            "and ",
-                            "or ",
-                            "not "
-                        )
-                    }
-
-                    val lastWord = ruleTextInput.split(" ", "\n", "(").lastOrNull()?.trim() ?: ""
-
-                    val predictiveSuggestions: List<String> = remember(ruleTextInput, currentWorkspaceVars, currentWorkspaceFuncs, currentWorkspaceTimers, availableLabels, currentWorkspaceObjects, currentWorkspaceObjectPaths) {
-                        if (lastWord.isEmpty()) {
-                            emptyList()
-                        } else {
-                            val candidates = (
-                                allKeywordsAndTemplates +
-                                currentWorkspaceVars +
-                                currentWorkspaceFuncs +
-                                currentWorkspaceObjects +
-                                currentWorkspaceObjectPaths +
-                                currentWorkspaceTimers.map { "\"$it\"" } +
-                                availableLabels
-                            ).distinct()
-
-                            candidates.filter { item: String ->
-                                item.contains(lastWord, ignoreCase = true) && !item.equals(lastWord, ignoreCase = true)
-                            }.take(8)
-                        }
-                    }
-
-                    if (predictiveSuggestions.isNotEmpty()) {
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "💡 Prediktív szövegbeviteli javaslatok:",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                predictiveSuggestions.forEach { suggestion: String ->
-                                    SuggestionChip(
-                                        onClick = {
-                                            val lastSpaceIdx = maxOf(
-                                                ruleTextInput.lastIndexOf(' '),
-                                                ruleTextInput.lastIndexOf('\n'),
-                                                ruleTextInput.lastIndexOf('(')
-                                            )
-                                            ruleTextInput = if (lastSpaceIdx == -1) {
-                                                suggestion
-                                            } else {
-                                                ruleTextInput.substring(0, lastSpaceIdx + 1) + suggestion
-                                            }
-                                            ruleDialogError = null
-                                        },
-                                        label = {
-                                            Text(
-                                                text = "✨ $suggestion",
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        },
-                                        colors = SuggestionChipDefaults.suggestionChipColors(
-                                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                                        )
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    ruleDialogError?.let { err ->
-                        Text(text = "⚠️ $err", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        try {
-                            val parsedRule = RuleParser.parseRuleText(
-                                name = ruleNameInput.ifEmpty { "Szabály" },
-                                text = ruleTextInput,
-                                defaultLabel = ruleLabelInput.ifEmpty { "Alapértelmezett" },
-                                mayCauseChaining = ruleChainingInput,
-                                id = if (editingRuleIndex != null && editingRuleIndex!! in rulesList.indices) {
-                                    rulesList[editingRuleIndex!!].id
-                                } else {
-                                    java.util.UUID.randomUUID().toString()
-                                }
-                            )
-                            viewModel.addOrUpdateRule(parsedRule, editingRuleIndex)
-                            showRuleDialog = false
-                        } catch (e: Exception) {
-                            ruleDialogError = e.message ?: "Érvénytelen szabály formátum!"
-                        }
-                    }
-                ) {
-                    Text("Mentés")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRuleDialog = false }) {
-                    Text("Mégse")
-                }
-            }
-        )
-    }
 
     // Új Munkaterület hozzáadása párbeszédablak
     if (showAddWsDialog) {

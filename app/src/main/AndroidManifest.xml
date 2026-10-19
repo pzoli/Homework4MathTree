@@ -23,6 +23,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".ui.RuleEditorActivity"
+            android:exported="false"
+            android:label="Szabály Szerkesztő"
+            android:theme="@style/Theme.Homework4MathTree"
+            android:windowSoftInputMode="adjustResize" />
     </application>
 
 </manifest>

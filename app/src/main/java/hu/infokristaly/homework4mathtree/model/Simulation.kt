@@ -246,7 +246,7 @@ data class Rule(
     val mayCauseChaining: Boolean = true,        // Szabályozza, hogy az értékadás indítson-e újabb szabály kiértékelést
     val referencedVariables: List<String> = emptyList(), // A feltételben (condition) hivatkozott változók
     val isActive: Boolean = true
-) {
+) : java.io.Serializable {
     val isFocusRule: Boolean get() = focusLabel != null
     val isTimerActionRule: Boolean get() = !timerAction.isNullOrEmpty() && !timerName.isNullOrEmpty()
     val isCreateObjectRule: Boolean get() = !createObjectClass.isNullOrEmpty() && !createObjectTarget.isNullOrEmpty()
