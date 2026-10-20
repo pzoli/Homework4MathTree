@@ -29,6 +29,24 @@
             android:label="Szabály Szerkesztő"
             android:theme="@style/Theme.Homework4MathTree"
             android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".ui.ClassDefEditorActivity"
+            android:exported="false"
+            android:label="Osztály Szerkesztő"
+            android:theme="@style/Theme.Homework4MathTree"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".ui.ObjectInstanceEditorActivity"
+            android:exported="false"
+            android:label="Objektum Szerkesztő"
+            android:theme="@style/Theme.Homework4MathTree"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".ui.FunctionEditorActivity"
+            android:exported="false"
+            android:label="Függvény Szerkesztő"
+            android:theme="@style/Theme.Homework4MathTree"
+            android:windowSoftInputMode="adjustResize" />
     </application>
 
 </manifest>

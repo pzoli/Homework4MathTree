@@ -10,7 +10,7 @@ import java.util.UUID
 data class ClassDef(
     val name: String,                            // Osztály neve (pl. "Alma", "Almafa")
     val properties: Map<String, String> = emptyMap() // Mezőnév -> Típusnév (pl. "szín" -> "StringNode", "súly" -> "NumberNode", "almák" -> "Alma")
-) {
+) : java.io.Serializable {
     fun toJsonString(): String {
         val propsStr = properties.toMap().entries.joinToString(",") { (k, v) ->
             "\"${escapeJson(k)}\":\"${escapeJson(v)}\""
@@ -39,7 +39,7 @@ data class ObjectInstance(
     val name: String,                            // Objektum neve (pl. "zöldAlma", "zöldAlmafa")
     val className: String,                       // Az Osztály (ClassDef) neve (pl. "Alma")
     val properties: Map<String, Any> = emptyMap() // Mezőnév -> Típusos Érték (NumberNode, StringNode, beágyazott ObjectInstance, etc.)
-) {
+) : java.io.Serializable {
     fun toJsonString(): String {
         val propsStr = properties.toMap().entries.joinToString(",") { (k, v) ->
             val valStr = when (v) {
@@ -198,7 +198,7 @@ data class Timer(
     val targetLabel: String,                     // Cél szabály címke (pl. "Klíma")
     val intervalMillis: Long = 2000L,            // Időköz milliszekundumban (pl. 2000 ms = 2 mp)
     val isRunning: Boolean = false               // Aktív-e az időzítő
-) {
+) : java.io.Serializable {
     fun toJsonString(): String {
         return "{" +
             "\"id\":\"${escapeJson(id)}\"," +
@@ -637,7 +637,7 @@ data class UserFunctionData(
     val name: String,
     val parameters: List<String> = emptyList(),
     val expressionBody: String = ""
-)
+) : java.io.Serializable
 
 /**
  * Egyedi névvel rendelkező Munkaterület (Workspace),

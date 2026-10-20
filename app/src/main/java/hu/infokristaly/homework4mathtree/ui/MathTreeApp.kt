@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -152,6 +151,74 @@ fun MathTreeApp(
         }
     }
 
+    // ClassDef Szerkesztő Activity indító
+    val classDefEditorLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val data = result.data ?: return@rememberLauncherForActivityResult
+            val editingName = data.getStringExtra(ClassDefEditorActivity.EXTRA_EDITING_CLASSDEF_NAME)
+            val classDef = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                data.getSerializableExtra(ClassDefEditorActivity.EXTRA_CLASSDEF, ClassDef::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                data.getSerializableExtra(ClassDefEditorActivity.EXTRA_CLASSDEF) as? ClassDef
+            }
+
+            if (classDef != null) {
+                if (editingName != null && editingName != classDef.name) {
+                    viewModel.removeClassDef(editingName)
+                }
+                viewModel.addOrUpdateClassDef(classDef)
+            }
+        }
+    }
+
+    // ObjectInstance Szerkesztő Activity indító
+    val objectInstanceEditorLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val data = result.data ?: return@rememberLauncherForActivityResult
+            val editingName = data.getStringExtra(ObjectInstanceEditorActivity.EXTRA_EDITING_OBJECT_NAME)
+            val objectInstance = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                data.getSerializableExtra(ObjectInstanceEditorActivity.EXTRA_OBJECT, ObjectInstance::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                data.getSerializableExtra(ObjectInstanceEditorActivity.EXTRA_OBJECT) as? ObjectInstance
+            }
+
+            if (objectInstance != null) {
+                if (editingName != null && editingName != objectInstance.name) {
+                    viewModel.removeObject(editingName)
+                }
+                viewModel.addOrUpdateObject(objectInstance)
+            }
+        }
+    }
+
+    // Függvény Szerkesztő Activity indító
+    val functionEditorLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val data = result.data ?: return@rememberLauncherForActivityResult
+            val funcIndex = data.getIntExtra(FunctionEditorActivity.EXTRA_FUNC_INDEX, -1)
+            val editingIndex = if (funcIndex >= 0) funcIndex else null
+
+            val userFunction = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                data.getSerializableExtra(FunctionEditorActivity.EXTRA_USER_FUNCTION, UserFunctionData::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                data.getSerializableExtra(FunctionEditorActivity.EXTRA_USER_FUNCTION) as? UserFunctionData
+            }
+
+            if (userFunction != null) {
+                viewModel.addOrUpdateUserFunction(userFunction, editingIndex)
+            }
+        }
+    }
+
     // Munkaterület hozzáadása dialog
     var showAddWsDialog by rememberSaveable { mutableStateOf(false) }
     var newWsNameInput by rememberSaveable { mutableStateOf("") }
@@ -163,34 +230,12 @@ fun MathTreeApp(
     var newVarValue by rememberSaveable { mutableStateOf("") }
     var varTypeDropdownExpanded by remember { mutableStateOf(false) }
 
-    // Függvény hozzáadása / szerkesztése dialog állapotok
-    var showFuncDialog by rememberSaveable { mutableStateOf(false) }
-    var editingFuncIndex by rememberSaveable { mutableStateOf<Int?>(null) }
-    var funcNameInput by rememberSaveable { mutableStateOf("") }
-    var funcParamsInput by rememberSaveable { mutableStateOf("") }
-    var funcBodyInput by rememberSaveable { mutableStateOf("") }
-
     // Időzítő (Timer) hozzáadása / szerkesztése dialog állapotok
     var showTimerDialog by rememberSaveable { mutableStateOf(false) }
     var editingTimerIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     var timerNameInput by rememberSaveable { mutableStateOf("") }
     var timerTargetLabelInput by rememberSaveable { mutableStateOf("") }
     var timerIntervalSecInput by rememberSaveable { mutableStateOf("2") }
-
-    // ClassDef hozzáadása / szerkesztése dialog állapotok
-    var showClassDefDialog by rememberSaveable { mutableStateOf(false) }
-    var editingClassName by rememberSaveable { mutableStateOf<String?>(null) }
-    var cdNameInput by rememberSaveable { mutableStateOf("") }
-    var cdPropsState by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    var newCdPropName by rememberSaveable { mutableStateOf("") }
-    var newCdPropType by rememberSaveable { mutableStateOf("StringNode") }
-
-    // ObjectInstance hozzáadása / szerkesztése dialog állapotok
-    var showObjectDialog by rememberSaveable { mutableStateOf(false) }
-    var editingObjectName by rememberSaveable { mutableStateOf<String?>(null) }
-    var objNameInput by rememberSaveable { mutableStateOf("") }
-    var objClassInput by rememberSaveable { mutableStateOf("") }
-    var objPropsState by remember { mutableStateOf<Map<String, Any>>(emptyMap()) }
 
     var ruleDialogTab by remember { mutableIntStateOf(0) }
 
@@ -534,12 +579,11 @@ fun MathTreeApp(
                         )
                         TextButton(
                             onClick = {
-                                editingClassName = null
-                                cdNameInput = "ÚjOsztály"
-                                cdPropsState = mapOf("szín" to "StringNode")
-                                newCdPropName = ""
-                                newCdPropType = "StringNode"
-                                showClassDefDialog = true
+                                ClassDefEditorActivity.launch(
+                                    context = context,
+                                    launcher = classDefEditorLauncher,
+                                    availablePropertyTypes = listOf("NumberNode", "BooleanNode", "StringNode", "VariableNode") + classDefsList.keys
+                                )
                             }
                         ) {
                             Text("+ Új Osztály", fontWeight = FontWeight.Bold)
@@ -577,12 +621,13 @@ fun MathTreeApp(
                                         Row {
                                             IconButton(
                                                 onClick = {
-                                                    editingClassName = cd.name
-                                                    cdNameInput = cd.name
-                                                    cdPropsState = cd.properties
-                                                    newCdPropName = ""
-                                                    newCdPropType = "StringNode"
-                                                    showClassDefDialog = true
+                                                    ClassDefEditorActivity.launch(
+                                                        context = context,
+                                                        launcher = classDefEditorLauncher,
+                                                        editingClassName = cd.name,
+                                                        classDef = cd,
+                                                        availablePropertyTypes = listOf("NumberNode", "BooleanNode", "StringNode", "VariableNode") + classDefsList.keys
+                                                    )
                                                 }
                                             ) {
                                                 Text("✏️", fontSize = 16.sp)
@@ -639,15 +684,14 @@ fun MathTreeApp(
                         TextButton(
                             onClick = {
                                 val defaultClass = classDefsList.keys.firstOrNull() ?: "Alma"
-                                editingObjectName = null
-                                objNameInput = "újObjektum"
-                                objClassInput = defaultClass
-                                val initialProps = mutableMapOf<String, Any>()
-                                classDefsList[defaultClass]?.properties?.forEach { (pName, pType) ->
-                                    initialProps[pName] = createTypedPropertyValue(pType, "")
-                                }
-                                objPropsState = initialProps
-                                showObjectDialog = true
+                                ObjectInstanceEditorActivity.launch(
+                                    context = context,
+                                    launcher = objectInstanceEditorLauncher,
+                                    defaultName = "újObjektum",
+                                    defaultClassName = defaultClass,
+                                    classDefs = classDefsList.values.toList(),
+                                    objects = objectsList.values.toList()
+                                )
                             }
                         ) {
                             Text("+ Új Objektum", fontWeight = FontWeight.Bold)
@@ -694,11 +738,14 @@ fun MathTreeApp(
                                         Row {
                                             IconButton(
                                                 onClick = {
-                                                    editingObjectName = obj.name
-                                                    objNameInput = obj.name
-                                                    objClassInput = obj.className
-                                                    objPropsState = obj.properties
-                                                    showObjectDialog = true
+                                                    ObjectInstanceEditorActivity.launch(
+                                                        context = context,
+                                                        launcher = objectInstanceEditorLauncher,
+                                                        editingObjectName = obj.name,
+                                                        objectInstance = obj,
+                                                        classDefs = classDefsList.values.toList(),
+                                                        objects = objectsList.values.toList()
+                                                    )
                                                 }
                                             ) {
                                                 Text("✏️", fontSize = 16.sp)
@@ -875,11 +922,14 @@ fun MathTreeApp(
                         )
                         TextButton(
                             onClick = {
-                                editingFuncIndex = null
-                                funcNameInput = ""
-                                funcParamsInput = "x"
-                                funcBodyInput = ""
-                                showFuncDialog = true
+                                FunctionEditorActivity.launch(
+                                    context = context,
+                                    launcher = functionEditorLauncher,
+                                    workspaceVars = variableInputs.keys.toList(),
+                                    workspaceFuncs = userFunctionsList.map { it.name },
+                                    workspaceObjects = objectsList.keys.toList(),
+                                    workspaceObjectPaths = extractedObjectPaths
+                                )
                             }
                         ) {
                             Text("+ Új függvény", fontWeight = FontWeight.Bold)
@@ -945,11 +995,16 @@ fun MathTreeApp(
                                         Row {
                                             IconButton(
                                                 onClick = {
-                                                    editingFuncIndex = index
-                                                    funcNameInput = func.name
-                                                    funcParamsInput = func.parameters.joinToString(", ")
-                                                    funcBodyInput = func.expressionBody
-                                                    showFuncDialog = true
+                                                    FunctionEditorActivity.launch(
+                                                        context = context,
+                                                        launcher = functionEditorLauncher,
+                                                        index = index,
+                                                        userFunction = func,
+                                                        workspaceVars = variableInputs.keys.toList(),
+                                                        workspaceFuncs = userFunctionsList.map { it.name },
+                                                        workspaceObjects = objectsList.keys.toList(),
+                                                        workspaceObjectPaths = extractedObjectPaths
+                                                    )
                                                 }
                                             ) {
                                                 Text("✏️", fontSize = 16.sp)
@@ -1303,269 +1358,7 @@ fun MathTreeApp(
         )
     }
 
-    // Új / Szerkesztendő ClassDef (Osztály) párbeszédablak Típus Választó Dropdown-nal
-    if (showClassDefDialog) {
-        val builtInNodeTypes = remember { listOf("NumberNode", "BooleanNode", "StringNode", "VariableNode") }
-        val availablePropertyTypes = remember(classDefsList) {
-            (builtInNodeTypes + classDefsList.keys).distinct()
-        }
-        var propTypeDropdownExpanded by remember { mutableStateOf(false) }
 
-        AlertDialog(
-            onDismissRequest = { showClassDefDialog = false },
-            title = {
-                Text(if (editingClassName == null) "Új Osztály (ClassDef)" else "Osztály szerkesztése")
-            },
-            text = {
-                Column(
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedTextField(
-                        value = cdNameInput,
-                        onValueChange = { cdNameInput = it.trim() },
-                        label = { Text("Osztály neve (pl. Alma, Almafa)") },
-                        singleLine = true
-                    )
-
-                    Text(text = "Tulajdonságok (Mezők):", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-
-                    cdPropsState.forEach { (pName, pType) ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = "• $pName : $pType", fontSize = 13.sp, fontFamily = FontFamily.Monospace)
-                            IconButton(onClick = { cdPropsState = cdPropsState - pName }) {
-                                Text("🗑️", fontSize = 14.sp)
-                            }
-                        }
-                    }
-
-                    HorizontalDivider()
-
-                    Text(text = "Új Mező Hozzáadása:", style = MaterialTheme.typography.labelSmall)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = newCdPropName,
-                            onValueChange = { newCdPropName = it.trim() },
-                            label = { Text("Mező neve") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true
-                        )
-
-                        ExposedDropdownMenuBox(
-                            expanded = propTypeDropdownExpanded,
-                            onExpandedChange = { propTypeDropdownExpanded = !propTypeDropdownExpanded },
-                            modifier = Modifier.weight(1.2f)
-                        ) {
-                            OutlinedTextField(
-                                value = newCdPropType,
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("Típus") },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = propTypeDropdownExpanded) },
-                                modifier = Modifier.menuAnchor()
-                            )
-                            ExposedDropdownMenu(
-                                expanded = propTypeDropdownExpanded,
-                                onDismissRequest = { propTypeDropdownExpanded = false }
-                            ) {
-                                availablePropertyTypes.forEach { typeOpt ->
-                                    DropdownMenuItem(
-                                        text = { Text(typeOpt) },
-                                        onClick = {
-                                            newCdPropType = typeOpt
-                                            propTypeDropdownExpanded = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-
-                        Button(
-                            onClick = {
-                                if (newCdPropName.isNotEmpty() && newCdPropType.isNotEmpty()) {
-                                    cdPropsState = cdPropsState + (newCdPropName to newCdPropType)
-                                    newCdPropName = ""
-                                }
-                            }
-                        ) {
-                            Text("+")
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (cdNameInput.isNotEmpty()) {
-                            viewModel.addOrUpdateClassDef(
-                                ClassDef(name = cdNameInput, properties = cdPropsState)
-                            )
-                            showClassDefDialog = false
-                        }
-                    }
-                ) {
-                    Text("Mentés")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClassDefDialog = false }) {
-                    Text("Mégse")
-                }
-            }
-        )
-    }
-
-    // Új / Szerkesztendő ObjectInstance (Objektum) párbeszédablak
-    if (showObjectDialog) {
-        AlertDialog(
-            onDismissRequest = { showObjectDialog = false },
-            title = {
-                Text(if (editingObjectName == null) "Új Objektum (Object)" else "Objektum szerkesztése")
-            },
-            text = {
-                Column(
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedTextField(
-                        value = objNameInput,
-                        onValueChange = { objNameInput = it.trim() },
-                        label = { Text("Objektum neve (pl. zöldAlmafa)") },
-                        singleLine = true
-                    )
-
-                    Text(text = "Osztály (ClassDef) Típusa:", style = MaterialTheme.typography.labelSmall)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        classDefsList.keys.forEach { cdName ->
-                            FilterChip(
-                                selected = objClassInput == cdName,
-                                onClick = {
-                                    objClassInput = cdName
-                                    if (editingObjectName == null) {
-                                        val initialTypedProps = mutableMapOf<String, Any>()
-                                        classDefsList[cdName]?.properties?.forEach { (pName, pType) ->
-                                            initialTypedProps[pName] = createTypedPropertyValue(pType, "")
-                                        }
-                                        objPropsState = initialTypedProps
-                                    }
-                                },
-                                label = { Text(cdName) }
-                            )
-                        }
-                    }
-
-                    Text(text = "Tulajdonság Értékek (Beállítás):", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-
-                    // REKURZÍV FELÜLETI SZERKESZTŐ AZ OBJEKTUM SZERKESZTŐ DIALOGBAN
-                    RecursiveObjectPropertiesEditor(
-                        parentPath = objNameInput,
-                        properties = objPropsState,
-                        className = objClassInput,
-                        classDefsList = classDefsList,
-                        objectsList = objectsList,
-                        depth = 0,
-                        onPropertyCommit = { path, valStr ->
-                            val pathSegments = path.split(".")
-                            val relativePath = if (pathSegments.isNotEmpty() && pathSegments[0] == objNameInput) {
-                                pathSegments.subList(1, pathSegments.size)
-                            } else {
-                                pathSegments
-                            }
-
-                            if (relativePath.isNotEmpty()) {
-                                val topPropName = relativePath.last()
-                                val propType = classDefsList[objClassInput]?.properties?.get(topPropName) ?: "StringNode"
-                                val typedVal = createTypedPropertyValue(propType, valStr)
-                                objPropsState = updateLocalNestedPropertyValue(objPropsState, relativePath, typedVal)
-                            }
-
-                            if (editingObjectName != null) {
-                                viewModel.updateObjectProperty(path, valStr)
-                            }
-                        },
-                        onCreateSubObject = { pPath, pName, targetClass ->
-                            val subClassDef = classDefsList[targetClass]
-                            val subProps = mutableMapOf<String, Any>()
-                            subClassDef?.properties?.forEach { (sName, sType) ->
-                                subProps[sName] = createTypedPropertyValue(sType, "")
-                            }
-                            val createdSubObj = ObjectInstance(
-                                name = "${pPath.replace(".", "_")}_$pName",
-                                className = targetClass,
-                                properties = subProps
-                            )
-
-                            val pathSegments = pPath.split(".")
-                            val relativePath = if (pathSegments.isNotEmpty() && pathSegments[0] == objNameInput) {
-                                pathSegments.subList(1, pathSegments.size)
-                            } else {
-                                pathSegments
-                            }
-
-                            val fullRelativeSegments = relativePath + pName
-                            objPropsState = updateLocalNestedObject(objPropsState, fullRelativeSegments, createdSubObj)
-
-                            if (editingObjectName != null) {
-                                viewModel.createAndLinkSubObject(pPath, pName, targetClass)
-                            }
-                        },
-                        onNullifySubObject = { path ->
-                            val pathSegments = path.split(".")
-                            val relativePath = if (pathSegments.isNotEmpty() && pathSegments[0] == objNameInput) {
-                                pathSegments.subList(1, pathSegments.size)
-                            } else {
-                                pathSegments
-                            }
-
-                            if (relativePath.isNotEmpty()) {
-                                objPropsState = updateLocalNestedPropertyValue(objPropsState, relativePath, StringNode(""))
-                            }
-
-                            if (editingObjectName != null) {
-                                viewModel.nullifyObjectProperty(path)
-                            }
-                        }
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (objNameInput.isNotEmpty() && objClassInput.isNotEmpty()) {
-                            viewModel.addOrUpdateObject(
-                                ObjectInstance(
-                                    name = objNameInput,
-                                    className = objClassInput,
-                                    properties = objPropsState
-                                )
-                            )
-                            showObjectDialog = false
-                        }
-                    }
-                ) {
-                    Text("Mentés")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showObjectDialog = false }) {
-                    Text("Mégse")
-                }
-            }
-        )
-    }
 
     // Új / Szerkesztendő Időzítő (Timer) párbeszédablak
     if (showTimerDialog) {
@@ -1671,70 +1464,7 @@ fun MathTreeApp(
         )
     }
 
-    // Új / Módosítandó függvény párbeszédablak
-    if (showFuncDialog) {
-        AlertDialog(
-            onDismissRequest = { showFuncDialog = false },
-            title = {
-                Text(if (editingFuncIndex == null) "Új függvény / kifejezés" else "Függvény szerkesztése")
-            },
-            text = {
-                Column(
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedTextField(
-                        value = funcNameInput,
-                        onValueChange = { funcNameInput = it.trim() },
-                        label = { Text("Függvény neve (pl. f1, sqr)") },
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = funcParamsInput,
-                        onValueChange = { funcParamsInput = it },
-                        label = { Text("Paraméterek (pl. x vagy x, y)") },
-                        placeholder = { Text("pl.: x") },
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = funcBodyInput,
-                        onValueChange = { funcBodyInput = it },
-                        label = { Text("Kifejezés törzse (pl. 2 * x + 3)") },
-                        placeholder = { Text("pl.: 2 * x") },
-                        singleLine = true
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (funcNameInput.isNotEmpty() && funcBodyInput.isNotEmpty()) {
-                            val parsedParams = funcParamsInput
-                                .split(",")
-                                .map { it.trim() }
-                                .filter { it.isNotEmpty() }
 
-                            val newFunc = UserFunctionData(
-                                name = funcNameInput,
-                                parameters = parsedParams,
-                                expressionBody = funcBodyInput
-                            )
-
-                            viewModel.addOrUpdateUserFunction(newFunc, editingFuncIndex)
-                            showFuncDialog = false
-                        }
-                    }
-                ) {
-                    Text("Mentés")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showFuncDialog = false }) {
-                    Text("Mégse")
-                }
-            }
-        )
-    }
 
     // Új változó hozzáadása párbeszédablak
     if (showAddVarDialog) {
@@ -1827,7 +1557,7 @@ fun MathTreeApp(
  * megjelenítésére, létrehozására és szerkesztésére.
  */
 @Composable
-private fun RecursiveObjectPropertiesEditor(
+fun RecursiveObjectPropertiesEditor(
     parentPath: String,
     properties: Map<String, Any>,
     className: String,
@@ -1968,20 +1698,12 @@ private fun VariableValueInputField(
 
     OutlinedTextField(
         value = textState,
-        onValueChange = { textState = it },
-        modifier = modifier.onFocusChanged { focusState ->
-            if (!focusState.isFocused && textState != initialValue) {
-                onValueCommit(textState)
-            }
+        onValueChange = {
+            textState = it
+            onValueCommit(it)
         },
+        modifier = modifier,
         singleLine = true,
-        placeholder = { Text("Érték (szám vagy szöveg)") },
-        keyboardActions = KeyboardActions(
-            onDone = {
-                if (textState != initialValue) {
-                    onValueCommit(textState)
-                }
-            }
-        )
+        placeholder = { Text("Érték (szám vagy szöveg)") }
     )
 }

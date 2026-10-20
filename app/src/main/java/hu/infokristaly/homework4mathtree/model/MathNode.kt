@@ -7,7 +7,7 @@ import kotlin.math.pow
 /**
  * Egységes érték típus a fa csomópontok kiértékeléséhez (Szám, Szöveg, Boole-érték).
  */
-sealed class Value {
+sealed class Value : java.io.Serializable {
     data class Number(val value: Double) : Value()
     data class Text(val value: String) : Value()
     data class Bool(val value: Boolean) : Value()
@@ -35,7 +35,7 @@ sealed class Value {
  * Fő ősosztály a kifejezésfához (Expression Tree Node).
  * Nyújtja a kiszámított getValue() metódust, a szimbólumot, leírást és a levelek azonosítását.
  */
-abstract class ExpressionNode {
+abstract class ExpressionNode : java.io.Serializable {
     abstract fun getValue(): Value
     abstract val symbol: String
     abstract val description: String
