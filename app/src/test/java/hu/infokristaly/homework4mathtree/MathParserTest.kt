@@ -227,8 +227,7 @@ class MathParserTest {
             name = "Teszt Szabály",
             label = "Teszt",
             conditionExpression = "v1 == \"teszt\"",
-            targetVariable = "x1",
-            valueExpression = "10"
+            actions = listOf(RuleAction.Assignment("x1", "10"))
         )
 
         val vars = mapOf("v1" to Value.Text("teszt"))
@@ -556,5 +555,36 @@ class MathParserTest {
         assertTrue(rule3.isCreateObjectRule)
         assertEquals("Alma", rule3.createObjectClass)
         assertEquals("zöldAlmafa.alma", rule3.createObjectTarget)
+    }
+
+    @Test
+    fun testMultiActionRuleParsing() {
+        val ruleText = "if temp < 20 then conclude that x = x + 1 then start timer Klíma Időzítő then conclude that status = \"klíma elindítva\" then create object from Alma into variable alma2 then conclude that alma2.szín = \"piros\""
+        val rule = RuleParser.parseRuleText("Multi Action Rule", ruleText)
+
+        assertEquals("temp < 20", rule.conditionExpression)
+        assertEquals(5, rule.actions.size)
+
+        assertTrue(rule.actions[0] is RuleAction.Assignment)
+        assertEquals("x", (rule.actions[0] as RuleAction.Assignment).targetVariable)
+        assertEquals("x + 1", (rule.actions[0] as RuleAction.Assignment).valueExpression)
+
+        assertTrue(rule.actions[1] is RuleAction.TimerAction)
+        assertEquals("start", (rule.actions[1] as RuleAction.TimerAction).action)
+        assertEquals("Klíma Időzítő", (rule.actions[1] as RuleAction.TimerAction).timerName)
+
+        assertTrue(rule.actions[2] is RuleAction.Assignment)
+        assertEquals("status", (rule.actions[2] as RuleAction.Assignment).targetVariable)
+        assertEquals("\"klíma elindítva\"", (rule.actions[2] as RuleAction.Assignment).valueExpression)
+
+        assertTrue(rule.actions[3] is RuleAction.CreateObject)
+        assertEquals("Alma", (rule.actions[3] as RuleAction.CreateObject).className)
+        assertEquals("alma2", (rule.actions[3] as RuleAction.CreateObject).target)
+
+        assertTrue(rule.actions[4] is RuleAction.Assignment)
+        assertEquals("alma2.szín", (rule.actions[4] as RuleAction.Assignment).targetVariable)
+        assertEquals("\"piros\"", (rule.actions[4] as RuleAction.Assignment).valueExpression)
+
+        assertEquals(ruleText, rule.toRuleText())
     }
 }

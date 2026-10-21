@@ -11,6 +11,7 @@ import hu.infokristaly.homework4mathtree.model.ClassDef
 import hu.infokristaly.homework4mathtree.model.ExpressionNode
 import hu.infokristaly.homework4mathtree.model.ObjectInstance
 import hu.infokristaly.homework4mathtree.model.Rule
+import hu.infokristaly.homework4mathtree.model.RuleAction
 import hu.infokristaly.homework4mathtree.model.Simulation
 import hu.infokristaly.homework4mathtree.model.Timer
 import hu.infokristaly.homework4mathtree.model.UserFunctionData
@@ -636,146 +637,140 @@ class MathTreeViewModel(application: Application) : AndroidViewModel(application
                     )
                     val condMet = condNode.getValue().toBoolean()
 
-                    if (currentRule.valueExpression.isNotEmpty() && !currentRule.isTimerActionRule && !currentRule.isFocusRule && !currentRule.isCreateObjectRule) {
-                        parser.parse(
-                            input = currentRule.valueExpression,
-                            variables = valueVariables,
-                            userFunctions = userFuncMap,
-                            isDegreeMode = isDegreeMode,
-                            simulation = simulation
-                        )
-                    }
-
                     if (condMet) {
-                        if (currentRule.isTimerActionRule) {
-                            resultsMap[currentRule.id] = RuleResult(conditionMet = true)
-                            val action = currentRule.timerAction
-                            val tName = currentRule.timerName
-                            if (action != null && tName != null) {
-                                val targetTimer = activeWorkspace.timers.find {
-                                    it.name.equals(tName, ignoreCase = true)
-                                }
-                                if (targetTimer != null) {
-                                    val shouldRun = action.equals("start", ignoreCase = true)
-                                    if (targetTimer.isRunning != shouldRun) {
+                        var lastAssignedVal: Value? = null
+
+                        for (action in currentRule.actions) {
+                            when (action) {
+                                is RuleAction.Assignment -> {
+                                    val currentValVars = updatedVars.mapValues { parseVariableValue(it.value) }
+                                    val valueNode = parser.parse(
+                                        input = action.valueExpression,
+                                        variables = currentValVars,
+                                        userFunctions = userFuncMap,
+                                        isDegreeMode = isDegreeMode,
+                                        simulation = simulation
+                                    )
+                                    val assignedVal = valueNode.getValue()
+                                    val newDisplayStr = assignedVal.toDisplayString()
+                                    lastAssignedVal = assignedVal
+
+                                    if (action.targetVariable.contains(".")) {
                                         withContext(Dispatchers.Main) {
-                                            toggleTimerRunning(targetTimer.id, shouldRun)
+                                            val currentWs = simulation.getActiveWorkspace()
+                                            val updatedSim = updateObjectPropertyPath(
+                                                path = action.targetVariable,
+                                                newValueStr = newDisplayStr,
+                                                currentWorkspace = currentWs,
+                                                simulation = simulation
+                                            )
+                                            simulation = updatedSim
+                                        }
+
+                                        if (currentRule.mayCauseChaining) {
+                                            val target = action.targetVariable
+                                            val dependentRules = activeWorkspace.rules.filter { dependentRule ->
+                                                dependentRule.isActive &&
+                                                    !dependentRule.isUnconditional &&
+                                                    dependentRule.referencedVariables.any { isPathReferenced(it, target) } &&
+                                                    !queue.contains(dependentRule)
+                                            }
+                                            queue.addAll(dependentRules)
+                                        }
+                                    } else {
+                                        val oldValue = updatedVars[action.targetVariable]
+                                        val valueChanged = oldValue != newDisplayStr
+                                        updatedVars[action.targetVariable] = newDisplayStr
+
+                                        if (valueChanged && currentRule.mayCauseChaining) {
+                                            val target = action.targetVariable
+                                            val dependentRules = activeWorkspace.rules.filter { dependentRule ->
+                                                dependentRule.isActive &&
+                                                    !dependentRule.isUnconditional &&
+                                                    dependentRule.referencedVariables.any { isPathReferenced(it, target) } &&
+                                                    !queue.contains(dependentRule)
+                                            }
+                                            queue.addAll(dependentRules)
+                                        }
+                                    }
+                                }
+
+                                is RuleAction.TimerAction -> {
+                                    val targetTimer = activeWorkspace.timers.find {
+                                        it.name.equals(action.timerName, ignoreCase = true)
+                                    }
+                                    if (targetTimer != null) {
+                                        val shouldRun = action.action.equals("start", ignoreCase = true)
+                                        if (targetTimer.isRunning != shouldRun) {
+                                            withContext(Dispatchers.Main) {
+                                                toggleTimerRunning(targetTimer.id, shouldRun)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                is RuleAction.Focus -> {
+                                    val focusRules = activeWorkspace.rules.filter {
+                                        it.label.equals(action.focusLabel, ignoreCase = true) && !queue.contains(it)
+                                    }
+                                    queue.addAll(focusRules)
+                                }
+
+                                is RuleAction.CreateObject -> {
+                                    val targetClass = action.className
+                                    val target = action.target
+
+                                    withContext(Dispatchers.Main) {
+                                        val currentWs = simulation.getActiveWorkspace()
+                                        val targetClassDef = currentWs.classDefs[targetClass]
+
+                                        val alreadyExists = if (target.contains(".")) {
+                                            val resolvedVal = resolveObjectPropertyPath(target, currentWs, simulation)
+                                            resolvedVal != null && resolvedVal.toDisplayString().isNotEmpty()
+                                        } else {
+                                            currentWs.objects.containsKey(target)
+                                        }
+
+                                        if (!alreadyExists && targetClassDef != null) {
+                                            val subProps = mutableMapOf<String, Any>()
+                                            targetClassDef.properties.forEach { (pName, pType) ->
+                                                subProps[pName] = createTypedPropertyValue(pType, "")
+                                            }
+
+                                            val newObjName = if (target.contains(".")) {
+                                                target.replace(".", "_")
+                                            } else {
+                                                target
+                                            }
+
+                                            val newObj = ObjectInstance(
+                                                name = newObjName,
+                                                className = targetClass,
+                                                properties = subProps
+                                            )
+
+                                            if (target.contains(".")) {
+                                                val updatedSim = updateObjectPropertyObject(
+                                                    path = target,
+                                                    newSubObj = newObj,
+                                                    currentWorkspace = currentWs,
+                                                    simulation = simulation
+                                                )
+                                                simulation = updatedSim
+                                            } else {
+                                                addVariable(varName = target, valueStr = newObjName, typeName = targetClass)
+                                                val updatedObjects = simulation.getActiveWorkspace().objects + (target to newObj)
+                                                val updatedWs = simulation.getActiveWorkspace().copy(objects = updatedObjects)
+                                                val updatedWorkspaces = simulation.workspaces + (updatedWs.name to updatedWs)
+                                                simulation = simulation.copy(workspaces = updatedWorkspaces)
+                                            }
                                         }
                                     }
                                 }
                             }
-                        } else if (currentRule.isFocusRule) {
-                            resultsMap[currentRule.id] = RuleResult(conditionMet = true)
-                            val targetLabel = currentRule.focusLabel
-                            if (targetLabel != null) {
-                                val focusRules = activeWorkspace.rules.filter {
-                                    it.label.equals(targetLabel, ignoreCase = true) && !queue.contains(it)
-                                }
-                                queue.addAll(focusRules)
-                            }
-                        } else if (currentRule.isCreateObjectRule) {
-                            resultsMap[currentRule.id] = RuleResult(conditionMet = true)
-                            val targetClass = currentRule.createObjectClass!!
-                            val target = currentRule.createObjectTarget!!
-
-                            withContext(Dispatchers.Main) {
-                                val currentWs = simulation.getActiveWorkspace()
-                                val targetClassDef = currentWs.classDefs[targetClass]
-
-                                val alreadyExists = if (target.contains(".")) {
-                                    val resolvedVal = resolveObjectPropertyPath(target, currentWs, simulation)
-                                    resolvedVal != null && resolvedVal.toDisplayString().isNotEmpty()
-                                } else {
-                                    currentWs.objects.containsKey(target)
-                                }
-
-                                if (!alreadyExists && targetClassDef != null) {
-                                    val subProps = mutableMapOf<String, Any>()
-                                    targetClassDef.properties.forEach { (pName, pType) ->
-                                        subProps[pName] = createTypedPropertyValue(pType, "")
-                                    }
-
-                                    val newObjName = if (target.contains(".")) {
-                                        target.replace(".", "_")
-                                    } else {
-                                        target
-                                    }
-
-                                    val newObj = ObjectInstance(
-                                        name = newObjName,
-                                        className = targetClass,
-                                        properties = subProps
-                                    )
-
-                                    if (target.contains(".")) {
-                                        val updatedSim = updateObjectPropertyObject(
-                                            path = target,
-                                            newSubObj = newObj,
-                                            currentWorkspace = currentWs,
-                                            simulation = simulation
-                                        )
-                                        simulation = updatedSim
-                                    } else {
-                                        addVariable(varName = target, valueStr = newObjName, typeName = targetClass)
-                                        val updatedObjects = simulation.getActiveWorkspace().objects + (target to newObj)
-                                        val updatedWs = simulation.getActiveWorkspace().copy(objects = updatedObjects)
-                                        val updatedWorkspaces = simulation.workspaces + (updatedWs.name to updatedWs)
-                                        simulation = simulation.copy(workspaces = updatedWorkspaces)
-                                    }
-                                }
-                            }
-                        } else {
-                            val valueNode = parser.parse(
-                                input = currentRule.valueExpression,
-                                variables = valueVariables,
-                                userFunctions = userFuncMap,
-                                isDegreeMode = isDegreeMode,
-                                simulation = simulation
-                            )
-                            val assignedVal = valueNode.getValue()
-                            val newDisplayStr = assignedVal.toDisplayString()
-
-                            if (currentRule.targetVariable.contains(".")) {
-                                withContext(Dispatchers.Main) {
-                                    val updatedSim = updateObjectPropertyPath(
-                                        path = currentRule.targetVariable,
-                                        newValueStr = newDisplayStr,
-                                        currentWorkspace = activeWorkspace,
-                                        simulation = simulation
-                                    )
-                                    simulation = updatedSim
-                                }
-                                resultsMap[currentRule.id] = RuleResult(conditionMet = true, assignedValue = assignedVal)
-
-                                if (currentRule.mayCauseChaining) {
-                                    val target = currentRule.targetVariable
-                                    val dependentRules = activeWorkspace.rules.filter { dependentRule ->
-                                        dependentRule.isActive &&
-                                            !dependentRule.isUnconditional &&
-                                            dependentRule.referencedVariables.any { isPathReferenced(it, target) } &&
-                                            !queue.contains(dependentRule)
-                                    }
-                                    queue.addAll(dependentRules)
-                                }
-                            } else {
-                                val oldValue = updatedVars[currentRule.targetVariable]
-                                val valueChanged = oldValue != newDisplayStr
-                                updatedVars[currentRule.targetVariable] = newDisplayStr
-                                resultsMap[currentRule.id] = RuleResult(conditionMet = true, assignedValue = assignedVal)
-
-                                // Ha a változó értéke megváltozott ÉS a szabály engedélyezi a chaining-et:
-                                if (valueChanged && currentRule.mayCauseChaining) {
-                                    val target = currentRule.targetVariable
-                                    val dependentRules = activeWorkspace.rules.filter { dependentRule ->
-                                        dependentRule.isActive &&
-                                            !dependentRule.isUnconditional &&
-                                            dependentRule.referencedVariables.any { isPathReferenced(it, target) } &&
-                                            !queue.contains(dependentRule)
-                                    }
-                                    queue.addAll(dependentRules)
-                                }
-                            }
                         }
+
+                        resultsMap[currentRule.id] = RuleResult(conditionMet = true, assignedValue = lastAssignedVal)
                     } else {
                         resultsMap[currentRule.id] = RuleResult(conditionMet = false)
                     }

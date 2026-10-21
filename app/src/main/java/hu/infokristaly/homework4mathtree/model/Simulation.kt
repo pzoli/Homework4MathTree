@@ -223,56 +223,89 @@ data class Timer(
 }
 
 /**
+ * Egy szabály akciója (következménye):
+ * - Értékadás: conclude that <targetVariable> = <valueExpression>
+ * - Fókusz / Invokáció: invoke <focusLabel> rules
+ * - Időzítő állapotváltás: start/stop timer <timerName>
+ * - Objektum példányosítás: create object from <className> into <target>
+ */
+sealed class RuleAction : java.io.Serializable {
+    data class Assignment(
+        val targetVariable: String,
+        val valueExpression: String
+    ) : RuleAction()
+
+    data class Focus(
+        val focusLabel: String
+    ) : RuleAction()
+
+    data class TimerAction(
+        val action: String, // "start" or "stop"
+        val timerName: String
+    ) : RuleAction()
+
+    data class CreateObject(
+        val className: String,
+        val target: String
+    ) : RuleAction()
+
+    fun toActionText(): String {
+        return when (this) {
+            is Assignment -> "conclude that $targetVariable = $valueExpression"
+            is Focus -> "invoke $focusLabel rules"
+            is TimerAction -> "$action timer $timerName"
+            is CreateObject -> "create object from $className into ${if (target.contains(".")) "property $target" else "variable $target"}"
+        }
+    }
+}
+
+/**
  * Szabály (Rule) adatmodell:
- * 1. Értékadó: "if <feltétel> then conclude that <változó> = <érték>"
- * 2. Meghívó/Fókuszáló: "if <feltétel> then invoke <címke> rules"
- * 3. Időzítő vezérlő: "if <feltétel> then start/stop timer <időzítő_név>"
- * 4. Objektum Példányosító: "if <feltétel> then create object from <ClassDef> into variable/property <cél>"
- * 5. Feltétel nélküli: "unconditionally ..."
+ * Támogatja egy vagy több akció (következmény) sorrendi összefűzését 'then' kulcsszóval.
  */
 data class Rule(
     val id: String = UUID.randomUUID().toString(),
     val name: String,                            // Szabály neve (pl. "Szabály 1")
     val label: String = "Alapértelmezett",        // Címke (pl. "init", "Teszt", "Klíma")
     val conditionExpression: String,             // Feltétel kifejezés (pl. "x1 <= 10")
-    val targetVariable: String = "",             // Cél változó neve (pl. "x1" vagy "status")
-    val valueExpression: String = "",            // Beállítandó érték kifejezése (pl. "x1 + 2")
-    val focusLabel: String? = null,              // Ha "invoke <címke> rules" típusú szabály
-    val timerAction: String? = null,             // "start" vagy "stop" ha időzítőt indít/állít le
-    val timerName: String? = null,               // Az elindítandó vagy leállítandó időzítő neve
-    val createObjectClass: String? = null,       // Létrehozandó ClassDef neve (pl. "Alma")
-    val createObjectTarget: String? = null,      // Cél változó vagy tulajdonság név (pl. "alma1" vagy "zöldAlmafa.alma")
+    val actions: List<RuleAction> = emptyList(), // Akciók listája sorrendben
     val isUnconditional: Boolean = false,        // true esetén feltétel nélküli szabály
     val mayCauseChaining: Boolean = true,        // Szabályozza, hogy az értékadás indítson-e újabb szabály kiértékelést
     val referencedVariables: List<String> = emptyList(), // A feltételben (condition) hivatkozott változók
     val isActive: Boolean = true
 ) : java.io.Serializable {
-    val isFocusRule: Boolean get() = focusLabel != null
-    val isTimerActionRule: Boolean get() = !timerAction.isNullOrEmpty() && !timerName.isNullOrEmpty()
-    val isCreateObjectRule: Boolean get() = !createObjectClass.isNullOrEmpty() && !createObjectTarget.isNullOrEmpty()
+
+    // Visszafelé kompatibilitás segéd-getterek
+    val targetVariable: String get() = (actions.firstOrNull { it is RuleAction.Assignment } as? RuleAction.Assignment)?.targetVariable ?: ""
+    val valueExpression: String get() = (actions.firstOrNull { it is RuleAction.Assignment } as? RuleAction.Assignment)?.valueExpression ?: ""
+    val focusLabel: String? get() = (actions.firstOrNull { it is RuleAction.Focus } as? RuleAction.Focus)?.focusLabel
+    val timerAction: String? get() = (actions.firstOrNull { it is RuleAction.TimerAction } as? RuleAction.TimerAction)?.action
+    val timerName: String? get() = (actions.firstOrNull { it is RuleAction.TimerAction } as? RuleAction.TimerAction)?.timerName
+    val createObjectClass: String? get() = (actions.firstOrNull { it is RuleAction.CreateObject } as? RuleAction.CreateObject)?.className
+    val createObjectTarget: String? get() = (actions.firstOrNull { it is RuleAction.CreateObject } as? RuleAction.CreateObject)?.target
+
+    val isFocusRule: Boolean get() = actions.any { it is RuleAction.Focus }
+    val isTimerActionRule: Boolean get() = actions.any { it is RuleAction.TimerAction }
+    val isCreateObjectRule: Boolean get() = actions.any { it is RuleAction.CreateObject }
 
     /**
      * Visszaadja a szabály teljes szöveges formátumát.
      */
     fun toRuleText(): String {
-        return when {
-            isCreateObjectRule && isUnconditional -> "unconditionally create object from $createObjectClass into ${if (createObjectTarget!!.contains(".")) "property $createObjectTarget" else "variable $createObjectTarget"}"
-            isCreateObjectRule -> "if $conditionExpression then create object from $createObjectClass into ${if (createObjectTarget!!.contains(".")) "property $createObjectTarget" else "variable $createObjectTarget"}"
-            isTimerActionRule && isUnconditional -> "unconditionally $timerAction timer $timerName"
-            isTimerActionRule -> "if $conditionExpression then $timerAction timer $timerName"
-            isUnconditional && isFocusRule -> "unconditionally invoke $focusLabel rules"
-            isUnconditional -> "unconditionally conclude that $targetVariable = $valueExpression"
-            isFocusRule -> "if $conditionExpression then invoke $focusLabel rules"
-            else -> "if $conditionExpression then conclude that $targetVariable = $valueExpression"
+        val actionsStr = if (actions.isEmpty()) {
+            "conclude that $targetVariable = $valueExpression"
+        } else {
+            actions.joinToString(" then ") { it.toActionText() }
+        }
+        return if (isUnconditional) {
+            "unconditionally $actionsStr"
+        } else {
+            "if $conditionExpression then $actionsStr"
         }
     }
 
     fun toJsonString(): String {
-        val focusStr = if (focusLabel != null) ",\"focusLabel\":\"${escapeJson(focusLabel)}\"" else ""
-        val timerActStr = if (timerAction != null) ",\"timerAction\":\"${escapeJson(timerAction)}\"" else ""
-        val timerNameStr = if (timerName != null) ",\"timerName\":\"${escapeJson(timerName)}\"" else ""
-        val createClassStr = if (createObjectClass != null) ",\"createObjectClass\":\"${escapeJson(createObjectClass)}\"" else ""
-        val createTargetStr = if (createObjectTarget != null) ",\"createObjectTarget\":\"${escapeJson(createObjectTarget)}\"" else ""
+        val actionsJson = actions.joinToString(",") { actionToJson(it) }
         val refVarsStr = referencedVariables.toList().joinToString(",") { "\"${escapeJson(it)}\"" }
 
         return "{" +
@@ -285,12 +318,8 @@ data class Rule(
             "\"isUnconditional\":$isUnconditional," +
             "\"mayCauseChaining\":$mayCauseChaining," +
             "\"referencedVariables\":[$refVarsStr]," +
-            "\"isActive\":$isActive" +
-            focusStr +
-            timerActStr +
-            timerNameStr +
-            createClassStr +
-            createTargetStr +
+            "\"isActive\":$isActive," +
+            "\"actions\":[$actionsJson]" +
             "}"
     }
 
@@ -301,18 +330,41 @@ data class Rule(
             val refVars = (map["referencedVariables"] as? List<*>)?.mapNotNull { it?.toString() }
                 ?: MathExpressionParser().extractVariables(cond)
 
+            val actionsList = mutableListOf<RuleAction>()
+            val rawActions = map["actions"] as? List<Map<String, Any?>>
+            if (rawActions != null) {
+                for (aMap in rawActions) {
+                    val act = parseRuleActionFromMap(aMap)
+                    if (act != null) actionsList.add(act)
+                }
+            }
+
+            if (actionsList.isEmpty()) {
+                val tVar = map["targetVariable"]?.toString() ?: ""
+                val vExpr = map["valueExpression"]?.toString() ?: ""
+                val fLabel = map["focusLabel"]?.toString()
+                val tAction = map["timerAction"]?.toString()
+                val tName = map["timerName"]?.toString()
+                val cClass = map["createObjectClass"]?.toString()
+                val cTarget = map["createObjectTarget"]?.toString()
+
+                if (!cClass.isNullOrEmpty() && !cTarget.isNullOrEmpty()) {
+                    actionsList.add(RuleAction.CreateObject(cClass, cTarget))
+                } else if (!tAction.isNullOrEmpty() && !tName.isNullOrEmpty()) {
+                    actionsList.add(RuleAction.TimerAction(tAction, tName))
+                } else if (!fLabel.isNullOrEmpty()) {
+                    actionsList.add(RuleAction.Focus(fLabel))
+                } else if (tVar.isNotEmpty()) {
+                    actionsList.add(RuleAction.Assignment(tVar, vExpr))
+                }
+            }
+
             return Rule(
                 id = map["id"]?.toString() ?: UUID.randomUUID().toString(),
                 name = map["name"]?.toString() ?: "Szabály",
                 label = map["label"]?.toString() ?: "Alapértelmezett",
                 conditionExpression = cond,
-                targetVariable = map["targetVariable"]?.toString() ?: "",
-                valueExpression = map["valueExpression"]?.toString() ?: "",
-                focusLabel = map["focusLabel"]?.toString(),
-                timerAction = map["timerAction"]?.toString(),
-                timerName = map["timerName"]?.toString(),
-                createObjectClass = map["createObjectClass"]?.toString(),
-                createObjectTarget = map["createObjectTarget"]?.toString(),
+                actions = actionsList,
                 isUnconditional = map["isUnconditional"] as? Boolean ?: false,
                 mayCauseChaining = map["mayCauseChaining"] as? Boolean ?: true,
                 referencedVariables = refVars,
@@ -322,9 +374,44 @@ data class Rule(
     }
 }
 
+private fun actionToJson(action: RuleAction): String {
+    return when (action) {
+        is RuleAction.Assignment -> "{\"type\":\"Assignment\",\"targetVariable\":\"${escapeJson(action.targetVariable)}\",\"valueExpression\":\"${escapeJson(action.valueExpression)}\"}"
+        is RuleAction.Focus -> "{\"type\":\"Focus\",\"focusLabel\":\"${escapeJson(action.focusLabel)}\"}"
+        is RuleAction.TimerAction -> "{\"type\":\"TimerAction\",\"action\":\"${escapeJson(action.action)}\",\"timerName\":\"${escapeJson(action.timerName)}\"}"
+        is RuleAction.CreateObject -> "{\"type\":\"CreateObject\",\"className\":\"${escapeJson(action.className)}\",\"target\":\"${escapeJson(action.target)}\"}"
+    }
+}
+
+private fun parseRuleActionFromMap(map: Map<String, Any?>): RuleAction? {
+    val type = map["type"]?.toString() ?: return null
+    return when (type) {
+        "Assignment" -> {
+            val tVar = map["targetVariable"]?.toString() ?: ""
+            val vExpr = map["valueExpression"]?.toString() ?: ""
+            RuleAction.Assignment(tVar, vExpr)
+        }
+        "Focus" -> {
+            val fLabel = map["focusLabel"]?.toString() ?: ""
+            RuleAction.Focus(fLabel)
+        }
+        "TimerAction" -> {
+            val act = map["action"]?.toString() ?: "start"
+            val tName = map["timerName"]?.toString() ?: ""
+            RuleAction.TimerAction(act, tName)
+        }
+        "CreateObject" -> {
+            val cName = map["className"]?.toString() ?: ""
+            val target = map["target"]?.toString() ?: ""
+            RuleAction.CreateObject(cName, target)
+        }
+        else -> null
+    }
+}
+
 /**
  * Szöveges Rule Parser: leképezi a szöveges szabályokat Rule objektummá.
- * Automatikusan kinyeri a feltételben (condition) hivatkozott változók listáját.
+ * Támogatja több 'then' akció sorrendi összefűzését.
  */
 object RuleParser {
     fun parseRuleText(
@@ -334,148 +421,116 @@ object RuleParser {
         mayCauseChaining: Boolean = true,
         id: String = UUID.randomUUID().toString()
     ): Rule {
-        val trimmed = text.trim()
-        val lower = trimmed.lowercase()
+        val normalizedText = text.replace("“", "\"").replace("”", "\"").replace("‘", "'").replace("’", "'").trim()
+        val lower = normalizedText.lowercase()
         val parser = MathExpressionParser()
 
-        // 1. Feltétel nélküli szabály: "unconditionally ..."
-        if (lower.startsWith("unconditionally")) {
-            var rest = trimmed.substring(15).trim()
-            val restLower = rest.lowercase()
-
-            // 1a. "unconditionally invoke <címke> rules" / "unconditionally focus on <címke>"
-            if (restLower.startsWith("invoke") || restLower.startsWith("focus on") || restLower.startsWith("focuse on")) {
-                var labelPart = if (restLower.startsWith("invoke")) {
-                    rest.substring(6).trim()
-                } else if (restLower.startsWith("focus on")) {
-                    rest.substring(8).trim()
-                } else {
-                    rest.substring(9).trim()
-                }
-                if (labelPart.lowercase().endsWith("rules")) {
-                    labelPart = labelPart.substring(0, labelPart.length - 5).trim()
-                }
-                if (labelPart.isEmpty()) {
-                    throw IllegalArgumentException("Meg kell adni a meghívandó címkét! Pl.: unconditionally invoke Klíma rules")
-                }
-                return Rule(
-                    id = id,
-                    name = name,
-                    label = defaultLabel,
-                    conditionExpression = "true",
-                    focusLabel = labelPart,
-                    isUnconditional = true,
-                    mayCauseChaining = mayCauseChaining,
-                    referencedVariables = emptyList()
-                )
+        val isUnconditional = lower.startsWith("unconditionally")
+        val (condition, actionsText) = if (isUnconditional) {
+            val rest = normalizedText.substring(15).trim()
+            Pair("true", rest)
+        } else {
+            val ifIndex = lower.indexOf("if")
+            if (ifIndex == -1) {
+                throw IllegalArgumentException("A szabálynak 'if...then...', 'if...invoke...', 'if...start/stop timer' vagy 'unconditionally...' formátumúnak kell lennie!")
             }
 
-            // 1b. "unconditionally start timer <név>" / "unconditionally stop timer <név>"
-            if (restLower.startsWith("start timer") || restLower.startsWith("stop timer") ||
-                restLower.startsWith("start") || restLower.startsWith("stop")
-            ) {
-                val action = if (restLower.contains("start")) "start" else "stop"
-                val timerIndex = restLower.indexOf("timer")
-                val tName = if (timerIndex != -1) {
-                    rest.substring(timerIndex + 5).trim().removeSurrounding("\"").removeSurrounding("'")
-                } else {
-                    rest.substring(action.length).trim().removeSurrounding("\"").removeSurrounding("'")
-                }
-                if (tName.isEmpty()) {
-                    throw IllegalArgumentException("Meg kell adni az időzítő nevét! Pl.: unconditionally start timer Klíma Időzítő")
-                }
-                return Rule(
-                    id = id,
-                    name = name,
-                    label = defaultLabel,
-                    conditionExpression = "true",
-                    timerAction = action,
-                    timerName = tName,
-                    isUnconditional = true,
-                    mayCauseChaining = mayCauseChaining,
-                    referencedVariables = emptyList()
-                )
+            val thenIndex = lower.indexOf("then", ifIndex + 2)
+            if (thenIndex == -1) {
+                throw IllegalArgumentException("A szabálynak tartalmaznia kell a 'then' kulcsszót az 'if' feltétel után!")
             }
 
-            // 1c. "unconditionally create object from <Class> into <target>"
-            if (restLower.startsWith("create object") || restLower.startsWith("create object from")) {
-                return parseCreateObjectClause(
-                    clauseText = rest,
-                    id = id,
-                    name = name,
-                    defaultLabel = defaultLabel,
-                    condition = "true",
-                    isUnconditional = true,
-                    mayCauseChaining = mayCauseChaining,
-                    refVars = emptyList()
-                )
+            val cond = normalizedText.substring(ifIndex + 2, thenIndex).trim()
+            if (cond.isEmpty()) {
+                throw IllegalArgumentException("Az 'if' és 'then' közötti feltétel nem lehet üres!")
             }
-
-            // 1d. "unconditionally conclude that x1 = 10 + y"
-            if (restLower.startsWith("conclude that")) {
-                rest = rest.substring(13).trim()
-            } else if (restLower.startsWith("conclude")) {
-                rest = rest.substring(8).trim()
-            }
-
-            val eqIndex = rest.indexOf('=')
-            if (eqIndex == -1) {
-                throw IllegalArgumentException("Feltétel nélküli szabály esetén is meg kell adni egy 'változó = kifejezés' értékadást! Pl.: unconditionally conclude that x1 = 10 + y")
-            }
-
-            val targetVar = rest.substring(0, eqIndex).trim()
-            val valExpr = rest.substring(eqIndex + 1).trim()
-
-            if (targetVar.isEmpty()) {
-                throw IllegalArgumentException("Hiányzó cél változó név az '=' előtt!")
-            }
-            if (valExpr.isEmpty()) {
-                throw IllegalArgumentException("Hiányzó érték kifejezés az '=' után!")
-            }
-
-            return Rule(
-                id = id,
-                name = name,
-                label = defaultLabel,
-                conditionExpression = "true",
-                targetVariable = targetVar,
-                valueExpression = valExpr,
-                focusLabel = null,
-                isUnconditional = true,
-                mayCauseChaining = mayCauseChaining,
-                referencedVariables = emptyList()
-            )
+            val rest = normalizedText.substring(thenIndex + 4).trim()
+            Pair(cond, rest)
         }
 
-        // 2. Feltételes szabály "if...then..."
-        val ifIndex = lower.indexOf("if")
-        if (ifIndex == -1) {
-            throw IllegalArgumentException("A szabálynak 'if...then...', 'if...invoke...', 'if...start/stop timer' vagy 'unconditionally...' formátumúnak kell lennie!")
+        val refVars = if (isUnconditional) emptyList() else parser.extractVariables(condition)
+
+        val clauseStrings = splitActionsByThen(actionsText)
+        if (clauseStrings.isEmpty()) {
+            throw IllegalArgumentException("A szabálynak tartalmaznia kell legalább egy akciót a 'then' vagy 'unconditionally' után!")
         }
 
-        val thenIndex = lower.indexOf("then", ifIndex + 2)
-        if (thenIndex == -1) {
-            throw IllegalArgumentException("A szabálynak tartalmaznia kell a 'then' kulcsszót az 'if' feltétel után!")
+        val parsedActions = clauseStrings.map { parseSingleActionClause(it) }
+
+        return Rule(
+            id = id,
+            name = name,
+            label = defaultLabel,
+            conditionExpression = condition,
+            actions = parsedActions,
+            isUnconditional = isUnconditional,
+            mayCauseChaining = mayCauseChaining,
+            referencedVariables = refVars
+        )
+    }
+
+    private fun splitActionsByThen(text: String): List<String> {
+        val clauses = mutableListOf<String>()
+        val sb = StringBuilder()
+        var inDoubleQuote = false
+        var inSingleQuote = false
+        var i = 0
+
+        while (i < text.length) {
+            val c = text[i]
+
+            if (c == '"' && !inSingleQuote) {
+                inDoubleQuote = !inDoubleQuote
+                sb.append(c)
+                i++
+                continue
+            }
+            if (c == '\'' && !inDoubleQuote) {
+                inSingleQuote = !inSingleQuote
+                sb.append(c)
+                i++
+                continue
+            }
+
+            if (!inDoubleQuote && !inSingleQuote) {
+                val remaining = text.substring(i)
+                val lowerRemaining = remaining.lowercase()
+                if (lowerRemaining.startsWith("then ") || lowerRemaining.startsWith("then\n") || lowerRemaining.startsWith("then\t")) {
+                    if (sb.trim().isNotEmpty()) {
+                        clauses.add(sb.toString().trim())
+                        sb.clear()
+                    }
+                    i += 4 // Skip "then"
+                    continue
+                }
+            }
+
+            sb.append(c)
+            i++
         }
 
-        val condition = trimmed.substring(ifIndex + 2, thenIndex).trim()
-        if (condition.isEmpty()) {
-            throw IllegalArgumentException("Az 'if' és 'then' közötti feltétel nem lehet üres!")
+        if (sb.trim().isNotEmpty()) {
+            clauses.add(sb.toString().trim())
         }
 
-        val refVars = parser.extractVariables(condition)
+        return clauses
+    }
 
-        val afterThen = trimmed.substring(thenIndex + 4).trim()
-        val afterThenLower = afterThen.lowercase()
+    private fun parseSingleActionClause(clauseText: String): RuleAction {
+        var rest = clauseText.trim()
+        if (rest.lowercase().startsWith("then ")) {
+            rest = rest.substring(5).trim()
+        }
+        val lower = rest.lowercase()
 
-        // 2a. "invoke <címke> rules" / "focus on <címke>"
-        if (afterThenLower.startsWith("invoke") || afterThenLower.startsWith("focus on") || afterThenLower.startsWith("focuse on")) {
-            var labelPart = if (afterThenLower.startsWith("invoke")) {
-                afterThen.substring(6).trim()
-            } else if (afterThenLower.startsWith("focus on")) {
-                afterThen.substring(8).trim()
+        // 1. "invoke <címke> rules" / "focus on <címke>"
+        if (lower.startsWith("invoke") || lower.startsWith("focus on") || lower.startsWith("focuse on")) {
+            var labelPart = if (lower.startsWith("invoke")) {
+                rest.substring(6).trim()
+            } else if (lower.startsWith("focus on")) {
+                rest.substring(8).trim()
             } else {
-                afterThen.substring(9).trim()
+                rest.substring(9).trim()
             }
             if (labelPart.lowercase().endsWith("rules")) {
                 labelPart = labelPart.substring(0, labelPart.length - 5).trim()
@@ -483,72 +538,71 @@ object RuleParser {
             if (labelPart.isEmpty()) {
                 throw IllegalArgumentException("Meg kell adni a meghívandó címkét! Pl.: invoke Klíma rules")
             }
-            return Rule(
-                id = id,
-                name = name,
-                label = defaultLabel,
-                conditionExpression = condition,
-                targetVariable = "",
-                valueExpression = "",
-                focusLabel = labelPart,
-                isUnconditional = false,
-                mayCauseChaining = mayCauseChaining,
-                referencedVariables = refVars
-            )
+            return RuleAction.Focus(labelPart)
         }
 
-        // 2b. "start timer <időzítő_név>" / "stop timer <időzítő_név>"
-        if (afterThenLower.startsWith("start timer") || afterThenLower.startsWith("stop timer") ||
-            afterThenLower.startsWith("start") || afterThenLower.startsWith("stop")
+        // 2. "start timer <név>" / "stop timer <név>"
+        if (lower.startsWith("start timer") || lower.startsWith("stop timer") ||
+            lower.startsWith("start") || lower.startsWith("stop")
         ) {
-            val action = if (afterThenLower.contains("start")) "start" else "stop"
-            val timerIndex = afterThenLower.indexOf("timer")
+            val action = if (lower.contains("start")) "start" else "stop"
+            val timerIndex = lower.indexOf("timer")
             val tName = if (timerIndex != -1) {
-                afterThen.substring(timerIndex + 5).trim().removeSurrounding("\"").removeSurrounding("'")
+                rest.substring(timerIndex + 5).trim().removeSurrounding("\"").removeSurrounding("'")
             } else {
-                afterThen.substring(action.length).trim().removeSurrounding("\"").removeSurrounding("'")
+                rest.substring(action.length).trim().removeSurrounding("\"").removeSurrounding("'")
             }
             if (tName.isEmpty()) {
                 throw IllegalArgumentException("Meg kell adni az időzítő nevét! Pl.: start timer Klíma Időzítő")
             }
-            return Rule(
-                id = id,
-                name = name,
-                label = defaultLabel,
-                conditionExpression = condition,
-                timerAction = action,
-                timerName = tName,
-                isUnconditional = false,
-                mayCauseChaining = mayCauseChaining,
-                referencedVariables = refVars
-            )
+            return RuleAction.TimerAction(action, tName)
         }
 
-        // 2c. "create object from <Class> into <target>"
-        if (afterThenLower.startsWith("create object") || afterThenLower.startsWith("create object from")) {
-            return parseCreateObjectClause(
-                clauseText = afterThen,
-                id = id,
-                name = name,
-                defaultLabel = defaultLabel,
-                condition = condition,
-                isUnconditional = false,
-                mayCauseChaining = mayCauseChaining,
-                refVars = refVars
-            )
+        // 3. "create object from <Class> into <target>"
+        if (lower.startsWith("create object") || lower.startsWith("create object from")) {
+            var createRest = rest
+            if (lower.startsWith("create object from ")) {
+                createRest = createRest.substring(19).trim()
+            } else if (lower.startsWith("create object ")) {
+                createRest = createRest.substring(14).trim()
+            }
+
+            val intoIndex = createRest.lowercase().indexOf(" into ")
+            if (intoIndex == -1) {
+                throw IllegalArgumentException("A 'create object' szabálynak tartalmaznia kell az 'into' kulcsszót! Pl.: create object from Alma into variable alma1")
+            }
+
+            val classNamePart = createRest.substring(0, intoIndex).trim()
+            var targetPart = createRest.substring(intoIndex + 6).trim()
+            val targetLower = targetPart.lowercase()
+
+            if (targetLower.startsWith("variable ")) {
+                targetPart = targetPart.substring(9).trim()
+            } else if (targetLower.startsWith("property ")) {
+                targetPart = targetPart.substring(9).trim()
+            }
+
+            if (classNamePart.isEmpty()) {
+                throw IllegalArgumentException("Hiányzó Osztály (ClassDef) név a 'create object from' után!")
+            }
+            if (targetPart.isEmpty()) {
+                throw IllegalArgumentException("Hiányzó cél változó vagy tulajdonság név az 'into' után!")
+            }
+
+            return RuleAction.CreateObject(classNamePart, targetPart)
         }
 
-        // 2d. "conclude that <változó> = <kifejezés>"
-        var concludePart = afterThen
-        if (afterThenLower.startsWith("conclude that")) {
-            concludePart = afterThen.substring(13).trim()
-        } else if (afterThenLower.startsWith("conclude")) {
-            concludePart = afterThen.substring(8).trim()
+        // 4. "conclude that <változó> = <kifejezés>" vagy "<változó> = <kifejezés>"
+        var concludePart = rest
+        if (lower.startsWith("conclude that ")) {
+            concludePart = rest.substring(13).trim()
+        } else if (lower.startsWith("conclude ")) {
+            concludePart = rest.substring(8).trim()
         }
 
         val eqIndex = concludePart.indexOf('=')
         if (eqIndex == -1) {
-            throw IllegalArgumentException("A 'then conclude that' után meg kell adni egy változó értékadást! Pl.: conclude that status = \"Hűtés\"")
+            throw IllegalArgumentException("A 'then' utáni akciónál meg kell adni egy érvényes műveletet (értékadás, időzítő vezérlés, fókusz vagy objektum létrehozás)!")
         }
 
         val targetVar = concludePart.substring(0, eqIndex).trim()
@@ -561,72 +615,7 @@ object RuleParser {
             throw IllegalArgumentException("Hiányzó érték kifejezés az '=' után!")
         }
 
-        return Rule(
-            id = id,
-            name = name,
-            label = defaultLabel,
-            conditionExpression = condition,
-            targetVariable = targetVar,
-            valueExpression = valExpr,
-            focusLabel = null,
-            isUnconditional = false,
-            mayCauseChaining = mayCauseChaining,
-            referencedVariables = refVars
-        )
-    }
-
-    private fun parseCreateObjectClause(
-        clauseText: String,
-        id: String,
-        name: String,
-        defaultLabel: String,
-        condition: String,
-        isUnconditional: Boolean,
-        mayCauseChaining: Boolean,
-        refVars: List<String>
-    ): Rule {
-        var rest = clauseText.trim()
-        val lower = rest.lowercase()
-
-        if (lower.startsWith("create object from ")) {
-            rest = rest.substring(19).trim()
-        } else if (lower.startsWith("create object ")) {
-            rest = rest.substring(14).trim()
-        }
-
-        val intoIndex = rest.lowercase().indexOf(" into ")
-        if (intoIndex == -1) {
-            throw IllegalArgumentException("A 'create object' szabálynak tartalmaznia kell az 'into' kulcsszót! Pl.: create object from Alma into variable alma1")
-        }
-
-        val classNamePart = rest.substring(0, intoIndex).trim()
-        var targetPart = rest.substring(intoIndex + 6).trim()
-        val targetLower = targetPart.lowercase()
-
-        if (targetLower.startsWith("variable ")) {
-            targetPart = targetPart.substring(9).trim()
-        } else if (targetLower.startsWith("property ")) {
-            targetPart = targetPart.substring(9).trim()
-        }
-
-        if (classNamePart.isEmpty()) {
-            throw IllegalArgumentException("Hiányzó Osztály (ClassDef) név a 'create object from' után!")
-        }
-        if (targetPart.isEmpty()) {
-            throw IllegalArgumentException("Hiányzó cél változó vagy tulajdonság név az 'into' után!")
-        }
-
-        return Rule(
-            id = id,
-            name = name,
-            label = defaultLabel,
-            conditionExpression = condition,
-            createObjectClass = classNamePart,
-            createObjectTarget = targetPart,
-            isUnconditional = isUnconditional,
-            mayCauseChaining = mayCauseChaining,
-            referencedVariables = refVars
-        )
+        return RuleAction.Assignment(targetVar, valExpr)
     }
 }
 
@@ -758,16 +747,14 @@ data class Simulation(
                     name = "Init Szabály - x1 kezdőérték",
                     label = "init",
                     conditionExpression = "true",
-                    targetVariable = "x1",
-                    valueExpression = "2",
+                    actions = listOf(RuleAction.Assignment("x1", "2")),
                     isUnconditional = true
                 ),
                 Rule(
                     name = "Chaining Szabály - x1 növelése",
                     label = "Teszt",
                     conditionExpression = "x1 <= 10",
-                    targetVariable = "x1",
-                    valueExpression = "x1 + 2",
+                    actions = listOf(RuleAction.Assignment("x1", "x1 + 2")),
                     mayCauseChaining = true,
                     referencedVariables = listOf("x1")
                 ),
@@ -775,31 +762,28 @@ data class Simulation(
                     name = "Kánikula Fókusz",
                     label = "init",
                     conditionExpression = "isHot == true",
-                    focusLabel = "Klíma",
+                    actions = listOf(RuleAction.Focus("Klíma")),
                     referencedVariables = listOf("isHot")
                 ),
                 Rule(
                     name = "Klíma Időzítő Indítása",
                     label = "Klíma",
                     conditionExpression = "temp > 25",
-                    timerAction = "start",
-                    timerName = "Klíma Időzítő",
+                    actions = listOf(RuleAction.TimerAction("start", "Klíma Időzítő")),
                     referencedVariables = listOf("temp")
                 ),
                 Rule(
                     name = "Klíma Időzítő Leállítása",
                     label = "Klíma",
                     conditionExpression = "temp <= 20",
-                    timerAction = "stop",
-                    timerName = "Klíma Időzítő",
+                    actions = listOf(RuleAction.TimerAction("stop", "Klíma Időzítő")),
                     referencedVariables = listOf("temp")
                 ),
                 Rule(
                     name = "Hőmérséklet Riasztás",
                     label = "Klíma",
                     conditionExpression = "temp > 25",
-                    targetVariable = "status",
-                    valueExpression = "\"Hűtés_szükséges\"",
+                    actions = listOf(RuleAction.Assignment("status", "\"Hűtés_szükséges\"")),
                     referencedVariables = listOf("temp")
                 )
             ),
@@ -848,8 +832,7 @@ data class Simulation(
                     name = "Erő számítás",
                     label = "Fizika",
                     conditionExpression = "m > 0",
-                    targetVariable = "F",
-                    valueExpression = "m * g",
+                    actions = listOf(RuleAction.Assignment("F", "m * g")),
                     referencedVariables = listOf("m")
                 )
             )
